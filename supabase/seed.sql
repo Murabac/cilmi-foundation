@@ -1,0 +1,8 @@
+-- Reer Sh Yoonis — seed data pointer
+-- Full family tree (103 members) generated from data/family_tree.csv
+--
+-- Run in Supabase SQL Editor AFTER 001_initial_schema.sql:
+--   supabase/seed_family.sql
+--
+-- Regenerate after CSV edits:
+--   powershell -File scripts/generate_seed.ps1

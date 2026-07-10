@@ -1,0 +1,559 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
+
+import '../../l10n/app_localizations.dart';
+import '../../models/models.dart';
+import '../../models/payment_report.dart';
+import '../../providers/providers.dart';
+import '../../utils/lineage_name.dart';
+import '../../widgets/member_business_card.dart';
+import '../../widgets/widgets.dart';
+
+class PaymentReportScreen extends ConsumerStatefulWidget {
+  const PaymentReportScreen({super.key});
+
+  @override
+  ConsumerState<PaymentReportScreen> createState() => _PaymentReportScreenState();
+}
+
+class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
+  PaymentReportFilter _filter = PaymentReportFilter.all;
+  final _searchCtrl = TextEditingController();
+  var _searchQuery = '';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _shiftMonth(int delta) {
+    final current = ref.read(selectedBillingPeriodProvider);
+    var month = current.month + delta;
+    var year = current.year;
+    while (month < 1) {
+      month += 12;
+      year -= 1;
+    }
+    while (month > 12) {
+      month -= 12;
+      year += 1;
+    }
+    ref.read(selectedBillingPeriodProvider.notifier).state =
+        BillingPeriod(month: month, year: year);
+  }
+
+  void _refreshReport() {
+    ref.invalidate(monthlyPaymentReportProvider);
+    ref.invalidate(poolBalanceProvider);
+    ref.invalidate(pendingContributionsProvider);
+  }
+
+  Future<void> _markPaid(MemberPaymentRow row, MonthlyPaymentReport report) async {
+    final l10n = await ref.read(localizationsProvider.future);
+    final verifier = await ref.read(currentProfileProvider.future);
+    if (verifier == null || !mounted) return;
+
+    final referenceCtrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l10n.t('mark_as_paid')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(l10n.t('mark_paid_confirm').replaceAll('{name}', row.profile.fullName)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: referenceCtrl,
+              decoration: InputDecoration(
+                labelText: l10n.t('transaction_reference'),
+                hintText: l10n.t('phone_payment_hint'),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(l10n.t('cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(l10n.t('mark_as_paid')),
+          ),
+        ],
+      ),
+    );
+
+    final reference = referenceCtrl.text;
+    referenceCtrl.dispose();
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await ref.read(contributionServiceProvider).adminSetPaymentStatus(
+            userId: row.profile.id,
+            month: report.month,
+            year: report.year,
+            verifierId: verifier.id,
+            adultRate: report.adultRate,
+            markPaid: true,
+            reference: reference,
+          );
+      _refreshReport();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l10n.t('payment_marked_paid'))),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString())),
+        );
+      }
+    }
+  }
+
+  Future<void> _markUnpaid(MemberPaymentRow row, MonthlyPaymentReport report) async {
+    final l10n = await ref.read(localizationsProvider.future);
+    final verifier = await ref.read(currentProfileProvider.future);
+    if (verifier == null || !mounted) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l10n.t('mark_as_unpaid')),
+        content: Text(
+          l10n.t('mark_unpaid_confirm').replaceAll('{name}', row.profile.fullName),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(l10n.t('cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(l10n.t('mark_as_unpaid')),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await ref.read(contributionServiceProvider).adminSetPaymentStatus(
+            userId: row.profile.id,
+            month: report.month,
+            year: report.year,
+            verifierId: verifier.id,
+            adultRate: report.adultRate,
+            markPaid: false,
+          );
+      _refreshReport();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString())),
+        );
+      }
+    }
+  }
+
+  Future<void> _approvePending(MemberPaymentRow row, MonthlyPaymentReport report) async {
+    final contribution = row.contribution;
+    if (contribution == null) return;
+    final verifier = await ref.read(currentProfileProvider.future);
+    if (verifier == null) return;
+
+    await ref.read(contributionServiceProvider).verifyContribution(
+          contributionId: contribution.id,
+          verifierId: verifier.id,
+          approve: true,
+        );
+    _refreshReport();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10nAsync = ref.watch(localizationsProvider);
+    final period = ref.watch(selectedBillingPeriodProvider);
+    final reportAsync = ref.watch(monthlyPaymentReportProvider);
+
+    return l10nAsync.when(
+      loading: () => const Scaffold(body: LoadingView()),
+      error: (_, __) => const Scaffold(body: ErrorView(message: 'Error')),
+      data: (l10n) {
+        final monthLabel = DateFormat('MMMM yyyy')
+            .format(DateTime(period.year, period.month))
+            .toUpperCase();
+
+        return Scaffold(
+          appBar: AppBar(title: Text(l10n.t('payment_report'))),
+          body: RefreshIndicator(
+            onRefresh: () async => _refreshReport(),
+            child: reportAsync.when(
+              loading: () => LoadingView(message: l10n.t('loading')),
+              error: (e, _) => ErrorView(
+                message: e.toString(),
+                onRetry: _refreshReport,
+              ),
+              data: (report) {
+                final allProfiles = ref.watch(allProfilesProvider).valueOrNull ??
+                    report.rows.map((r) => r.profile).toList();
+                final byId = {for (final p in allProfiles) p.id: p};
+                final lineageById = {
+                  for (final row in report.rows)
+                    row.profile.id: buildPatrilinealDisplayName(row.profile, byId),
+                };
+
+                final filtered = report.rows
+                    .where((r) => r.matchesFilter(_filter))
+                    .where((r) => _matchesSearch(r, lineageById))
+                    .toList();
+
+                return ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    _MonthSelector(
+                      label: monthLabel,
+                      onPrevious: () => _shiftMonth(-1),
+                      onNext: () => _shiftMonth(1),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      l10n.t('payment_report_admin_hint'),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.grey.shade700,
+                          ),
+                    ),
+                    const SizedBox(height: 16),
+                    _SummaryGrid(report: report, l10n: l10n),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: PaymentReportFilter.values.map((f) {
+                        return FilterChip(
+                          label: Text(_filterLabel(l10n, f)),
+                          selected: _filter == f,
+                          onSelected: (_) => setState(() => _filter = f),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _searchCtrl,
+                      onChanged: (v) => setState(() => _searchQuery = v),
+                      decoration: InputDecoration(
+                        hintText: l10n.t('search_members'),
+                        prefixIcon: const Icon(Icons.search),
+                        suffixIcon: _searchQuery.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: () {
+                                  _searchCtrl.clear();
+                                  setState(() => _searchQuery = '');
+                                },
+                              )
+                            : null,
+                      ),
+                    ),
+                    if (_searchQuery.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        l10n
+                            .t('search_results')
+                            .replaceAll('{count}', '${filtered.length}'),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Colors.grey.shade600,
+                            ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    Text(
+                      '${filtered.length} ${l10n.t('members_label')}',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    if (filtered.isEmpty)
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Center(
+                            child: Text(
+                              _searchQuery.isNotEmpty
+                                  ? l10n.t('no_search_results')
+                                  : l10n.t('no_data'),
+                            ),
+                          ),
+                        ),
+                      )
+                    else
+                      ...filtered.map(
+                        (row) => _MemberPaymentTile(
+                          row: row,
+                          report: report,
+                          l10n: l10n,
+                          onTap: () => showMemberBusinessCard(
+                            context,
+                            ref,
+                            row.profile,
+                          ),
+                          onMarkPaid: () => _markPaid(row, report),
+                          onMarkUnpaid: () => _markUnpaid(row, report),
+                          onApprovePending: () => _approvePending(row, report),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  String _filterLabel(AppLocalizations l10n, PaymentReportFilter filter) {
+    return switch (filter) {
+      PaymentReportFilter.all => l10n.t('filter_all'),
+      PaymentReportFilter.paid => l10n.t('paid'),
+      PaymentReportFilter.pending => l10n.t('pending_verification'),
+      PaymentReportFilter.unpaid => l10n.t('filter_unpaid'),
+      PaymentReportFilter.exempt => l10n.t('exempt'),
+    };
+  }
+
+  bool _matchesSearch(MemberPaymentRow row, Map<String, String> lineageById) {
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return true;
+    final shortName = row.profile.fullName.toLowerCase();
+    final fullName = (lineageById[row.profile.id] ?? '').toLowerCase();
+    return shortName.contains(query) || fullName.contains(query);
+  }
+}
+
+class _MonthSelector extends StatelessWidget {
+  const _MonthSelector({
+    required this.label,
+    required this.onPrevious,
+    required this.onNext,
+  });
+
+  final String label;
+  final VoidCallback onPrevious;
+  final VoidCallback onNext;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Row(
+          children: [
+            IconButton(onPressed: onPrevious, icon: const Icon(Icons.chevron_left)),
+            Expanded(
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+            ),
+            IconButton(onPressed: onNext, icon: const Icon(Icons.chevron_right)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SummaryGrid extends StatelessWidget {
+  const _SummaryGrid({required this.report, required this.l10n});
+
+  final MonthlyPaymentReport report;
+  final AppLocalizations l10n;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: MetricCard(
+                title: l10n.t('paid'),
+                value: '${report.paidCount}',
+                icon: Icons.check_circle,
+                color: Colors.green,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: MetricCard(
+                title: l10n.t('pending_verification'),
+                value: '${report.pendingCount}',
+                icon: Icons.hourglass_top,
+                color: Colors.amber.shade800,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: MetricCard(
+                title: l10n.t('filter_unpaid'),
+                value: '${report.unpaidCount}',
+                icon: Icons.schedule,
+                color: Colors.red.shade400,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: MetricCard(
+                title: l10n.t('collected'),
+                value: '\$${report.collectedAmount.toStringAsFixed(0)}',
+                icon: Icons.payments,
+                color: const Color(0xFF059669),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _MemberPaymentTile extends StatelessWidget {
+  const _MemberPaymentTile({
+    required this.row,
+    required this.report,
+    required this.l10n,
+    required this.onTap,
+    required this.onMarkPaid,
+    required this.onMarkUnpaid,
+    required this.onApprovePending,
+  });
+
+  final MemberPaymentRow row;
+  final MonthlyPaymentReport report;
+  final AppLocalizations l10n;
+  final VoidCallback onTap;
+  final VoidCallback onMarkPaid;
+  final VoidCallback onMarkUnpaid;
+  final VoidCallback onApprovePending;
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, color, icon) = _statusVisual(row.category, l10n);
+    final amount = row.contribution?.amountDue ?? report.adultRate;
+    final isExempt = row.profile.demographic.isPaymentExempt;
+    final isPaid = row.category == PaymentReportCategory.paid;
+    final isPending = row.category == PaymentReportCategory.pendingVerification;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        onTap: onTap,
+        leading: CircleAvatar(
+          backgroundColor: color.withValues(alpha: 0.15),
+          child: Icon(icon, color: color, size: 20),
+        ),
+        title: Text(row.profile.fullName),
+        subtitle: Text(label),
+        trailing: isExempt
+            ? Text(l10n.t('exempt'), style: TextStyle(color: Colors.grey.shade600))
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        '\$${amount.toStringAsFixed(2)}',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      Text(label, style: TextStyle(color: color, fontSize: 11)),
+                    ],
+                  ),
+                  PopupMenuButton<String>(
+                    onSelected: (action) {
+                      switch (action) {
+                        case 'paid':
+                          onMarkPaid();
+                        case 'unpaid':
+                          onMarkUnpaid();
+                        case 'approve':
+                          onApprovePending();
+                      }
+                    },
+                    itemBuilder: (_) => [
+                      if (!isPaid && !isExempt)
+                        PopupMenuItem(
+                          value: 'paid',
+                          child: Row(
+                            children: [
+                              const Icon(Icons.check_circle, color: Colors.green, size: 20),
+                              const SizedBox(width: 8),
+                              Text(l10n.t('mark_as_paid')),
+                            ],
+                          ),
+                        ),
+                      if (isPending)
+                        PopupMenuItem(
+                          value: 'approve',
+                          child: Row(
+                            children: [
+                              const Icon(Icons.verified, color: Colors.green, size: 20),
+                              const SizedBox(width: 8),
+                              Text(l10n.t('approve')),
+                            ],
+                          ),
+                        ),
+                      if (isPaid)
+                        PopupMenuItem(
+                          value: 'unpaid',
+                          child: Row(
+                            children: [
+                              const Icon(Icons.undo, size: 20),
+                              const SizedBox(width: 8),
+                              Text(l10n.t('mark_as_unpaid')),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+
+  (String, Color, IconData) _statusVisual(
+    PaymentReportCategory category,
+    AppLocalizations l10n,
+  ) {
+    return switch (category) {
+      PaymentReportCategory.paid =>
+        (l10n.t('paid'), Colors.green, Icons.check_circle),
+      PaymentReportCategory.pendingVerification =>
+        (l10n.t('pending_verification'), Colors.amber.shade800, Icons.hourglass_top),
+      PaymentReportCategory.unpaid =>
+        (l10n.t('filter_unpaid'), Colors.red.shade400, Icons.schedule),
+      PaymentReportCategory.notBilled =>
+        (l10n.t('not_billed'), Colors.grey.shade600, Icons.receipt_long),
+      PaymentReportCategory.rejected =>
+        (l10n.t('rejected'), Colors.red, Icons.cancel),
+      PaymentReportCategory.exempt =>
+        (l10n.t('exempt'), Colors.blueGrey, Icons.block),
+    };
+  }
+}

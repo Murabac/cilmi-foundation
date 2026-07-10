@@ -1,0 +1,515 @@
+import 'dart:typed_data';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
+
+import '../l10n/app_localizations.dart';
+import '../models/models.dart';
+import '../providers/providers.dart';
+import '../theme/app_theme.dart';
+import '../utils/phone_utils.dart';
+import 'widgets.dart';
+
+Future<void> showMemberBusinessCard(
+  BuildContext context,
+  WidgetRef ref,
+  Profile profile,
+) async {
+  final l10n = await ref.read(localizationsProvider.future);
+  if (!context.mounted) return;
+
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (ctx) => _MemberBusinessCardSheet(
+      profileId: profile.id,
+      l10n: l10n,
+    ),
+  );
+}
+
+class _MemberBusinessCardSheet extends ConsumerStatefulWidget {
+  const _MemberBusinessCardSheet({
+    required this.profileId,
+    required this.l10n,
+  });
+
+  final String profileId;
+  final AppLocalizations l10n;
+
+  @override
+  ConsumerState<_MemberBusinessCardSheet> createState() =>
+      _MemberBusinessCardSheetState();
+}
+
+class _MemberBusinessCardSheetState
+    extends ConsumerState<_MemberBusinessCardSheet> {
+  bool _editing = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final profileAsync = ref.watch(_profileProvider(widget.profileId));
+    final currentAsync = ref.watch(currentProfileProvider);
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.72,
+      minChildSize: 0.45,
+      maxChildSize: 0.92,
+      builder: (_, scrollCtrl) {
+        return profileAsync.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (e, _) => Padding(
+            padding: const EdgeInsets.all(24),
+            child: ErrorView(message: e.toString()),
+          ),
+          data: (profile) {
+            final current = currentAsync.valueOrNull;
+            final canEdit = current?.role.isAdminOrManager ?? false;
+
+            return ListView(
+              controller: scrollCtrl,
+              padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (_editing && canEdit)
+                  _AdminProfileEditForm(
+                    profile: profile,
+                    l10n: widget.l10n,
+                    onCancel: () => setState(() => _editing = false),
+                    onSaved: () {
+                      ref.invalidate(_profileProvider(widget.profileId));
+                      ref.invalidate(profileLineageNameProvider(widget.profileId));
+                      ref.invalidate(allProfilesProvider);
+                      ref.invalidate(fullLineageTreeProvider);
+                      setState(() => _editing = false);
+                    },
+                  )
+                else ...[
+                  MemberBusinessCardContent(profile: profile, l10n: widget.l10n),
+                  if (canEdit) ...[
+                    const SizedBox(height: 20),
+                    FilledButton.icon(
+                      onPressed: () => setState(() => _editing = true),
+                      icon: const Icon(Icons.edit),
+                      label: Text(widget.l10n.t('edit_member')),
+                    ),
+                  ],
+                ],
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+final _profileProvider =
+    FutureProvider.family<Profile, String>((ref, id) async {
+  return ref.read(profileServiceProvider).getProfileById(id).then(
+        (p) => p ?? (throw Exception('Profile not found')),
+      );
+});
+
+class MemberBusinessCardContent extends ConsumerWidget {
+  const MemberBusinessCardContent({
+    super.key,
+    required this.profile,
+    required this.l10n,
+  });
+
+  final Profile profile;
+  final AppLocalizations l10n;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final ratingColor = CareRatingTheme.colorFor(profile.careRating);
+    final dash = l10n.t('not_set');
+    final lineageAsync = ref.watch(profileLineageNameProvider(profile.id));
+
+    return Card(
+      elevation: 4,
+      shadowColor: ratingColor.withValues(alpha: 0.25),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: ratingColor.withValues(alpha: 0.35)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          children: [
+            _Avatar(profile: profile, size: 88),
+            const SizedBox(height: 16),
+            lineageAsync.when(
+              loading: () => Text(
+                profile.fullName,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              error: (_, __) => Text(
+                profile.fullName,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              data: (lineageName) => Column(
+                children: [
+                  Text(
+                    lineageName,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          height: 1.35,
+                        ),
+                  ),
+                  if (lineageName.toUpperCase() !=
+                      profile.fullName.toUpperCase()) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      profile.fullName,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.grey.shade600,
+                          ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            _CardRow(
+              icon: Icons.phone_android,
+              label: l10n.t('mobile'),
+              value: profile.phoneNumber?.isNotEmpty == true
+                  ? displayPhone(profile.phoneNumber)
+                  : dash,
+            ),
+            _CardRow(
+              icon: Icons.favorite_border,
+              label: l10n.t('marital_status'),
+              value: profile.maritalStatus != null
+                  ? l10n.t(profile.maritalStatus!.labelKey())
+                  : dash,
+            ),
+            _CardRow(
+              icon: Icons.health_and_safety_outlined,
+              label: l10n.t('care_rating'),
+              value:
+                  '${profile.careRating} · ${l10n.t(CareRatingTheme.labelKey(profile.careRating))}',
+              valueColor: ratingColor,
+            ),
+            _CardRow(
+              icon: Icons.work_outline,
+              label: l10n.t('occupation'),
+              value: profile.occupation?.isNotEmpty == true
+                  ? profile.occupation!
+                  : dash,
+            ),
+            _CardRow(
+              icon: Icons.location_city_outlined,
+              label: l10n.t('city'),
+              value:
+                  profile.city?.isNotEmpty == true ? profile.city! : dash,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Avatar extends StatelessWidget {
+  const _Avatar({required this.profile, this.size = 64});
+
+  final Profile profile;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = CareRatingTheme.colorFor(profile.careRating);
+    final initial =
+        profile.fullName.isNotEmpty ? profile.fullName[0].toUpperCase() : '?';
+
+    if (profile.avatarUrl != null && profile.avatarUrl!.isNotEmpty) {
+      return CircleAvatar(
+        radius: size / 2,
+        backgroundImage: NetworkImage(profile.avatarUrl!),
+        onBackgroundImageError: (_, __) {},
+      );
+    }
+
+    return CircleAvatar(
+      radius: size / 2,
+      backgroundColor: color.withValues(alpha: 0.15),
+      child: Text(
+        initial,
+        style: TextStyle(
+          fontSize: size * 0.4,
+          fontWeight: FontWeight.bold,
+          color: color,
+        ),
+      ),
+    );
+  }
+}
+
+class _CardRow extends StatelessWidget {
+  const _CardRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.valueColor,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color? valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: Colors.grey.shade600),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: Theme.of(context).textTheme.labelMedium),
+                Text(
+                  value,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        fontWeight: FontWeight.w500,
+                        color: valueColor,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AdminProfileEditForm extends ConsumerStatefulWidget {
+  const _AdminProfileEditForm({
+    required this.profile,
+    required this.l10n,
+    required this.onCancel,
+    required this.onSaved,
+  });
+
+  final Profile profile;
+  final AppLocalizations l10n;
+  final VoidCallback onCancel;
+  final VoidCallback onSaved;
+
+  @override
+  ConsumerState<_AdminProfileEditForm> createState() =>
+      _AdminProfileEditFormState();
+}
+
+class _AdminProfileEditFormState extends ConsumerState<_AdminProfileEditForm> {
+  late final _phoneCtrl =
+      TextEditingController(text: widget.profile.phoneNumber ?? '');
+  late final _occupationCtrl =
+      TextEditingController(text: widget.profile.occupation ?? '');
+  late final _cityCtrl =
+      TextEditingController(text: widget.profile.city ?? '');
+  late MaritalStatus? _maritalStatus = widget.profile.maritalStatus;
+  late int _careRating = widget.profile.careRating;
+  Uint8List? _imageBytes;
+  String? _imageExt;
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _phoneCtrl.dispose();
+    _occupationCtrl.dispose();
+    _cityCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickImage() async {
+    final picker = ImagePicker();
+    final file = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 800,
+      imageQuality: 85,
+    );
+    if (file == null) return;
+    final bytes = await file.readAsBytes();
+    final ext = file.path.split('.').last.toLowerCase();
+    setState(() {
+      _imageBytes = bytes;
+      _imageExt = ext == 'png' ? 'png' : 'jpg';
+    });
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      final service = ref.read(profileServiceProvider);
+      var avatarUrl = widget.profile.avatarUrl;
+
+      if (_imageBytes != null && _imageExt != null) {
+        avatarUrl = await service.uploadAvatar(
+          widget.profile.id,
+          _imageBytes!,
+          _imageExt!,
+        );
+      }
+
+      await service.updateMemberProfileAdmin(
+        profileId: widget.profile.id,
+        phoneNumber: _phoneCtrl.text.trim(),
+        maritalStatus: _maritalStatus,
+        occupation: _occupationCtrl.text.trim(),
+        city: _cityCtrl.text.trim(),
+        careRating: _careRating,
+        avatarUrl: avatarUrl,
+      );
+
+      widget.onSaved();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString())),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = widget.l10n;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(l10n.t('edit_member'),
+            style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 16),
+        Center(
+          child: Stack(
+            children: [
+              _imageBytes != null
+                  ? CircleAvatar(
+                      radius: 44,
+                      backgroundImage: MemoryImage(_imageBytes!),
+                    )
+                  : _Avatar(profile: widget.profile, size: 88),
+              Positioned(
+                bottom: 0,
+                right: 0,
+                child: IconButton.filled(
+                  onPressed: _pickImage,
+                  icon: const Icon(Icons.camera_alt, size: 18),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Center(
+          child: Text(
+            widget.profile.fullName,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+          ),
+        ),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _phoneCtrl,
+          keyboardType: TextInputType.phone,
+          decoration: InputDecoration(labelText: l10n.t('mobile')),
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<MaritalStatus?>(
+          decoration: InputDecoration(labelText: l10n.t('marital_status')),
+          initialValue: _maritalStatus,
+          items: [
+            DropdownMenuItem(value: null, child: Text(l10n.t('not_set'))),
+            DropdownMenuItem(
+              value: MaritalStatus.single,
+              child: Text(l10n.t('marital_single')),
+            ),
+            DropdownMenuItem(
+              value: MaritalStatus.married,
+              child: Text(l10n.t('marital_married')),
+            ),
+          ],
+          onChanged: (v) => setState(() => _maritalStatus = v),
+        ),
+        const SizedBox(height: 12),
+        Text(l10n.t('care_rating')),
+        Slider(
+          value: _careRating.toDouble(),
+          min: 1,
+          max: 5,
+          divisions: 4,
+          label: '$_careRating',
+          onChanged: (v) => setState(() => _careRating = v.round()),
+        ),
+        TextField(
+          controller: _occupationCtrl,
+          decoration: InputDecoration(labelText: l10n.t('occupation')),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _cityCtrl,
+          decoration: InputDecoration(labelText: l10n.t('city')),
+        ),
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _saving ? null : widget.onCancel,
+                child: Text(l10n.t('cancel')),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton(
+                onPressed: _saving ? null : _save,
+                child: _saving
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(l10n.t('save')),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}

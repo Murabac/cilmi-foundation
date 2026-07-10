@@ -1,0 +1,48 @@
+name: reer_sh_yoonis
+description: Reer Sh Yoonis — Family Lineage & Mutual-Aid Platform
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  supabase_flutter: ^2.9.1
+  flutter_riverpod: ^2.6.1
+  intl: ^0.20.2
+  image_picker: ^1.1.2
+  google_fonts: ^6.2.1
+  url_launcher: ^6.3.1
+  permission_handler: ^11.4.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.3
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/logo.png
+  adaptive_icon_background: "#D4E4D4"
+  adaptive_icon_foreground: assets/logo.png
+  web:
+    generate: true
+    image_path: assets/logo.png
+  windows:
+    generate: true
+    image_path: assets/logo.png
+  macos:
+    generate: true
+    image_path: assets/logo.png
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/l10n/en.json
+    - assets/l10n/so.json
+    - assets/logo.png

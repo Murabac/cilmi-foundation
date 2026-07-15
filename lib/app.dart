@@ -11,6 +11,7 @@ import 'screens/admin/verification_queue_screen.dart';
 import 'screens/home_shell.dart';
 import 'screens/auth/register_screen.dart';
 import 'utils/phone_utils.dart';
+import 'screens/profile/claim_pending_screen.dart';
 import 'screens/profile/lineage_setup_screen.dart';
 import 'screens/profile/profile_screen.dart';
 import 'theme/app_theme.dart';
@@ -80,15 +81,29 @@ class ProfileSetupGate extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profileAsync = ref.watch(currentProfileProvider);
+    final pendingAsync = ref.watch(myPendingClaimProvider);
 
     return profileAsync.when(
-      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
+      loading: () => const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      ),
       error: (e, _) => Scaffold(body: Center(child: Text(e.toString()))),
       data: (profile) {
-        if (ref.read(profileServiceProvider).needsLineageSetup(profile)) {
-          return const LineageSetupScreen();
-        }
-        return const HomeShell();
+        return pendingAsync.when(
+          loading: () => const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          ),
+          error: (e, _) => Scaffold(body: Center(child: Text(e.toString()))),
+          data: (pending) {
+            if (pending != null) {
+              return const ClaimPendingScreen();
+            }
+            if (ref.read(profileServiceProvider).needsLineageSetup(profile)) {
+              return const LineageSetupScreen();
+            }
+            return const HomeShell();
+          },
+        );
       },
     );
   }

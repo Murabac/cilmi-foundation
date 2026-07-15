@@ -99,6 +99,30 @@ String authErrorMessage(Object error) {
   return text;
 }
 
+/// User-facing profile claim error text.
+String claimErrorMessage(Object error, dynamic l10n) {
+  final text = error.toString();
+  if (text.contains('pending_request_exists')) {
+    return l10n.t('claim_pending_exists');
+  }
+  if (text.contains('profile_not_available')) {
+    return l10n.t('claim_profile_unavailable');
+  }
+  if (text.contains('profile_pending_claim')) {
+    return l10n.t('claim_profile_taken');
+  }
+  if (text.contains('already_linked')) {
+    return l10n.t('claim_already_linked');
+  }
+  if (text.contains('unauthorized')) {
+    return l10n.t('claim_super_admin_only');
+  }
+  if (text.contains('name_required')) {
+    return l10n.t('add_member_name_required');
+  }
+  return authErrorMessage(error);
+}
+
 String? validatePhoneForSignup(String input) {
   final trimmed = input.trim();
   if (trimmed.isEmpty) return 'Enter your mobile number.';

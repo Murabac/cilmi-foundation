@@ -8,9 +8,9 @@ import '../models/lineage_registration.dart';
 import '../models/models.dart';
 import '../models/payment_report.dart';
 import '../utils/lineage_name.dart';
+import '../utils/payment_exempt.dart';
 import '../utils/profile_sort.dart';
 import '../utils/phone_utils.dart';
-import '../utils/profile_sort.dart';
 
 SupabaseQuerySchema _db(SupabaseClient client) =>
     client.schema(SupabaseConfig.schema);
@@ -78,6 +78,7 @@ class AuthService {
       email: phoneToAuthEmail(normalized),
       password: password,
       data: {
+        'app': 'reer_sh_yoonis',
         'full_name': fullName,
         'phone': normalized,
       },
@@ -92,6 +93,10 @@ class ProfileService {
   ProfileService(this._client);
 
   final SupabaseClient _client;
+
+  /// [profile_claim_requests] also references [profiles] via reviewed_by.
+  static const _claimRequestSelect =
+      '*, profiles!profile_claim_requests_profile_id_fkey(full_name)';
 
   Future<Profile?> getCurrentProfile() async {
     final user = _client.auth.currentUser;
@@ -147,21 +152,69 @@ class ProfileService {
     String profileId, {
     String? phoneNumber,
   }) async {
-    final user = _client.auth.currentUser!;
-    await _removeOrphanAuthProfile(user.id);
+    throw UnsupportedError(
+      'Direct profile claims are disabled. Use submitProfileClaim.',
+    );
+  }
 
-    final updates = <String, dynamic>{'auth_user_id': user.id};
-    if (phoneNumber != null) updates['phone_number'] = phoneNumber;
+  Future<String> submitProfileClaim({
+    required String profileId,
+    required String requesterName,
+    String? phoneNumber,
+  }) async {
+    final result = await _db(_client).rpc(
+      'submit_profile_claim',
+      params: {
+        'p_profile_id': profileId,
+        'p_requester_name': requesterName.trim(),
+        'p_requester_phone': phoneNumber?.trim(),
+      },
+    );
+    return result as String;
+  }
+
+  Future<ProfileClaimRequest?> getMyPendingClaimRequest() async {
+    final user = _client.auth.currentUser;
+    if (user == null) return null;
 
     final data = await _db(_client)
-        .from('profiles')
-        .update(updates)
-        .eq('id', profileId)
-        .filter('auth_user_id', 'is', null)
-        .select()
-        .single();
+        .from('profile_claim_requests')
+        .select(_claimRequestSelect)
+        .eq('auth_user_id', user.id)
+        .eq('status', 'pending')
+        .maybeSingle();
 
-    return Profile.fromJson(data);
+    if (data == null) return null;
+    return ProfileClaimRequest.fromJson(data);
+  }
+
+  Future<List<ProfileClaimRequest>> getPendingClaimRequests() async {
+    final rows = await _db(_client)
+        .from('profile_claim_requests')
+        .select(_claimRequestSelect)
+        .eq('status', 'pending')
+        .order('created_at');
+
+    return (rows as List)
+        .map((e) => ProfileClaimRequest.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> approveProfileClaim(String requestId) async {
+    await _db(_client).rpc(
+      'approve_profile_claim',
+      params: {'p_request_id': requestId},
+    );
+  }
+
+  Future<void> rejectProfileClaim(String requestId, {String? reason}) async {
+    await _db(_client).rpc(
+      'reject_profile_claim',
+      params: {
+        'p_request_id': requestId,
+        'p_reason': reason,
+      },
+    );
   }
 
   Future<Profile> createLinkedProfile({
@@ -250,51 +303,24 @@ class ProfileService {
     return Profile.fromJson(data);
   }
 
-  Future<Profile> completeLineageSetup({
+  Future<void> completeLineageSetup({
     required LineageSelection selection,
     required String fullName,
     String? phoneNumber,
     required AppLocalizations l10n,
   }) async {
-    switch (selection.type) {
-      case LineageRegistrationType.claimExisting:
-        if (selection.claimProfile == null) {
-          throw Exception(l10n.t('select_your_profile'));
-        }
-        return claimExistingProfile(
-          selection.claimProfile!.id,
-          phoneNumber: phoneNumber,
-        );
-
-      case LineageRegistrationType.sonOfSheekh:
-        final root = await getRootProfile();
-        if (root == null) throw Exception(l10n.t('no_data'));
-        return createLinkedProfile(
-          fullName: fullName.trim(),
-          fatherId: root.id,
-          phoneNumber: phoneNumber,
-        );
-
-      case LineageRegistrationType.childOfSon:
-        if (selection.selectedSon == null) {
-          throw Exception(l10n.t('select_father_son'));
-        }
-        return createLinkedProfile(
-          fullName: fullName.trim(),
-          fatherId: selection.selectedSon!.id,
-          phoneNumber: phoneNumber,
-        );
-
-      case LineageRegistrationType.grandchild:
-        if (selection.selectedChild == null) {
-          throw Exception(l10n.t('select_father_grandchild'));
-        }
-        return createLinkedProfile(
-          fullName: fullName.trim(),
-          fatherId: selection.selectedChild!.id,
-          phoneNumber: phoneNumber,
-        );
+    if (selection.type != LineageRegistrationType.claimExisting) {
+      throw Exception(l10n.t('claim_only_registration'));
     }
+    if (selection.claimProfile == null) {
+      throw Exception(l10n.t('select_your_profile'));
+    }
+
+    await submitProfileClaim(
+      profileId: selection.claimProfile!.id,
+      requesterName: fullName.trim(),
+      phoneNumber: phoneNumber,
+    );
   }
 
   Future<void> updatePhone(String profileId, String? phone) async {
@@ -312,22 +338,25 @@ class ProfileService {
   }
 
   Future<Profile?> getRootProfile() async {
-    final patriarch = await _db(_client)
+    final rows = await _db(_client)
         .from('profiles')
         .select()
-        .ilike('full_name', 'SHEEKH YONIS')
-        .maybeSingle();
-    if (patriarch != null) return Profile.fromJson(patriarch);
+        .filter('father_id', 'is', null)
+        .ilike('full_name', '%SHEEKH YONIS%')
+        .order('full_name')
+        .limit(1);
+    final list = rows as List;
+    if (list.isNotEmpty) return Profile.fromJson(list.first);
 
-    final rows = await _db(_client)
+    final fallback = await _db(_client)
         .from('profiles')
         .select()
         .filter('father_id', 'is', null)
         .order('full_name')
         .limit(1);
-    final list = rows as List;
-    if (list.isEmpty) return null;
-    return Profile.fromJson(list.first);
+    final fallbackList = fallback as List;
+    if (fallbackList.isEmpty) return null;
+    return Profile.fromJson(fallbackList.first);
   }
 
   Future<int> getMemberCount() async {
@@ -471,6 +500,10 @@ class ProfileService {
     String? city,
     int? careRating,
     String? avatarUrl,
+    String? fullName,
+    String? fatherId,
+    bool clearFatherId = false,
+    int? birthOrder,
   }) async {
     final updates = <String, dynamic>{};
     if (phoneNumber != null) updates['phone_number'] = phoneNumber;
@@ -480,6 +513,13 @@ class ProfileService {
     if (occupation != null) updates['occupation'] = occupation;
     if (city != null) updates['city'] = city;
     if (avatarUrl != null) updates['avatar_url'] = avatarUrl;
+    if (fullName != null) updates['full_name'] = fullName.trim();
+    if (clearFatherId) {
+      updates['father_id'] = null;
+    } else if (fatherId != null) {
+      updates['father_id'] = fatherId;
+    }
+    if (birthOrder != null) updates['birth_order'] = birthOrder;
 
     if (careRating != null) {
       await updateCareRating(profileId, careRating);
@@ -572,6 +612,11 @@ class ContributionService {
   }
 
   Future<List<Contribution>> getPendingContributions() async {
+    final profileRows = await _db(_client).from('profiles').select();
+    final profiles = (profileRows as List)
+        .map((e) => Profile.fromJson(e))
+        .toList();
+
     final rows = await _db(_client)
         .from('contributions')
         .select('*, profiles!contributions_user_id_fkey(full_name)')
@@ -585,6 +630,10 @@ class ContributionService {
         ...e,
         'profile_name': profile?['full_name'],
       });
+    }).where((c) {
+      final member = profiles.where((p) => p.id == c.userId).firstOrNull;
+      if (member == null) return true;
+      return !isProfilePaymentExempt(member, allProfiles: profiles);
     }).toList();
   }
 
@@ -605,8 +654,20 @@ class ContributionService {
     required String userId,
     required String reference,
     String? receiptUrl,
-    required double amountDue,
+    double? amountDue,
   }) async {
+    final profileRows = await _db(_client).from('profiles').select();
+    final profiles = (profileRows as List)
+        .map((e) => Profile.fromJson(e))
+        .toList();
+    final payer = profiles.where((p) => p.id == userId).firstOrNull;
+    if (payer != null && isProfilePaymentExempt(payer, allProfiles: profiles)) {
+      throw Exception('payment_exempt');
+    }
+
+    final settings = await SettingsService(_client).getSettings();
+    final due = amountDue ?? settings.currentAdultRate;
+
     final now = DateTime.now();
     final existing = await getCurrentMonthContribution(userId);
 
@@ -614,7 +675,8 @@ class ContributionService {
       await _db(_client).from('contributions').update({
         'transaction_reference': reference,
         'receipt_url': receiptUrl,
-        'amount_paid': amountDue,
+        'amount_paid': due,
+        'amount_due': due,
         'status': 'pending',
       }).eq('id', existing.id);
     } else {
@@ -622,8 +684,8 @@ class ContributionService {
         'user_id': userId,
         'billing_month': now.month,
         'billing_year': now.year,
-        'amount_due': amountDue,
-        'amount_paid': amountDue,
+        'amount_due': due,
+        'amount_paid': due,
         'transaction_reference': reference,
         'receipt_url': receiptUrl,
         'status': 'pending',
@@ -669,6 +731,15 @@ class ContributionService {
     required bool markPaid,
     String? reference,
   }) async {
+    final profileRows = await _db(_client).from('profiles').select();
+    final profiles = (profileRows as List)
+        .map((e) => Profile.fromJson(e))
+        .toList();
+    final member = profiles.where((p) => p.id == userId).firstOrNull;
+    if (member != null && isProfilePaymentExempt(member, allProfiles: profiles)) {
+      throw Exception('payment_exempt');
+    }
+
     final existing = await getContributionForPeriod(
       userId: userId,
       month: month,
@@ -734,6 +805,8 @@ class ContributionService {
     required int month,
     required int year,
   }) async {
+    await _db(_client).rpc('purge_exempt_contributions');
+
     final settings = await SettingsService(_client).getSettings();
     final profileRows = await _db(_client).from('profiles').select();
     final profiles = sortProfilesInTreeAgeOrder(
@@ -753,6 +826,7 @@ class ContributionService {
     }
 
     final rows = profiles
+        .where((p) => !isProfilePaymentExempt(p, allProfiles: profiles))
         .map(
           (p) => MemberPaymentRow(
             profile: p,

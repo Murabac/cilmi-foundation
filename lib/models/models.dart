@@ -21,6 +21,8 @@ extension UserRoleX on UserRole {
 
   bool get isAdminOrManager =>
       this == UserRole.superAdmin || this == UserRole.manager;
+
+  bool get isSuperAdmin => this == UserRole.superAdmin;
 }
 
 extension DemographicX on Demographic {
@@ -189,6 +191,59 @@ class Profile {
         city: city ?? this.city,
         avatarUrl: avatarUrl ?? this.avatarUrl,
       );
+}
+
+enum ClaimRequestStatus { pending, approved, rejected }
+
+extension ClaimRequestStatusX on ClaimRequestStatus {
+  String get dbValue => name;
+
+  static ClaimRequestStatus fromDb(String? v) => switch (v) {
+        'approved' => ClaimRequestStatus.approved,
+        'rejected' => ClaimRequestStatus.rejected,
+        _ => ClaimRequestStatus.pending,
+      };
+}
+
+class ProfileClaimRequest {
+  const ProfileClaimRequest({
+    required this.id,
+    required this.profileId,
+    required this.authUserId,
+    required this.requesterName,
+    this.requesterPhone,
+    required this.status,
+    this.profileFullName,
+    this.createdAt,
+    this.rejectionReason,
+  });
+
+  final String id;
+  final String profileId;
+  final String authUserId;
+  final String requesterName;
+  final String? requesterPhone;
+  final ClaimRequestStatus status;
+  final String? profileFullName;
+  final DateTime? createdAt;
+  final String? rejectionReason;
+
+  factory ProfileClaimRequest.fromJson(Map<String, dynamic> json) {
+    final profile = json['profiles'] as Map<String, dynamic>?;
+    return ProfileClaimRequest(
+      id: json['id'] as String,
+      profileId: json['profile_id'] as String,
+      authUserId: json['auth_user_id'] as String,
+      requesterName: json['requester_name'] as String,
+      requesterPhone: json['requester_phone'] as String?,
+      status: ClaimRequestStatusX.fromDb(json['status'] as String?),
+      profileFullName: profile?['full_name'] as String?,
+      createdAt: json['created_at'] != null
+          ? DateTime.parse(json['created_at'] as String)
+          : null,
+      rejectionReason: json['rejection_reason'] as String?,
+    );
+  }
 }
 
 class Contribution {

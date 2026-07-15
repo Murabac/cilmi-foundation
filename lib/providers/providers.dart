@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../l10n/app_localizations.dart';
 import '../models/lineage_tree.dart';
 import '../models/models.dart';
+import '../utils/payment_exempt.dart';
 import '../models/payment_report.dart';
 import '../services/services.dart';
 
@@ -137,7 +138,9 @@ final monthlyPaymentReportProvider =
 
 final myContributionsProvider = FutureProvider<List<Contribution>>((ref) async {
   final profile = await ref.watch(currentProfileProvider.future);
-  if (profile == null || profile.demographic.isPaymentExempt) return [];
+  if (profile == null) return [];
+  final allProfiles = await ref.watch(allProfilesProvider.future);
+  if (isProfilePaymentExempt(profile, allProfiles: allProfiles)) return [];
   return ref
       .watch(contributionServiceProvider)
       .getMyContributions(profile.id);
@@ -147,6 +150,18 @@ final auditLedgerProvider = FutureProvider<List<LedgerEntry>>((ref) async {
   final profile = await ref.watch(currentProfileProvider.future);
   if (profile == null || !profile.role.isAdminOrManager) return [];
   return ref.watch(treasuryServiceProvider).getAuditLedger();
+});
+
+final myPendingClaimProvider = FutureProvider<ProfileClaimRequest?>((ref) async {
+  ref.watch(authStateProvider);
+  return ref.watch(profileServiceProvider).getMyPendingClaimRequest();
+});
+
+final pendingClaimRequestsProvider =
+    FutureProvider<List<ProfileClaimRequest>>((ref) async {
+  final profile = await ref.watch(currentProfileProvider.future);
+  if (profile == null || profile.role != UserRole.superAdmin) return [];
+  return ref.watch(profileServiceProvider).getPendingClaimRequests();
 });
 
 final focusedProfileIdProvider = StateProvider<String?>((ref) => null);

@@ -9,6 +9,7 @@ import '../../config/payment_config.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
+import '../../utils/payment_exempt.dart';
 import '../../utils/phone_dialer.dart';
 import '../../widgets/widgets.dart';
 
@@ -43,6 +44,7 @@ class _ContributionScreenState extends ConsumerState<ContributionScreen> {
   Widget build(BuildContext context) {
     final l10nAsync = ref.watch(localizationsProvider);
     final profileAsync = ref.watch(currentProfileProvider);
+    final allProfilesAsync = ref.watch(allProfilesProvider);
     final contributionsAsync = ref.watch(myContributionsProvider);
     final settingsAsync = ref.watch(globalSettingsProvider);
 
@@ -51,8 +53,14 @@ class _ContributionScreenState extends ConsumerState<ContributionScreen> {
       error: (_, __) => const ErrorView(message: 'Error'),
       data: (l10n) {
         final profile = profileAsync.valueOrNull;
+        final allProfiles = allProfilesAsync.valueOrNull ?? [];
 
-        if (profile != null && profile.demographic.isPaymentExempt) {
+        if (profile != null && allProfilesAsync.isLoading) {
+          return LoadingView(message: l10n.t('loading'));
+        }
+
+        if (profile != null &&
+            isProfilePaymentExempt(profile, allProfiles: allProfiles)) {
           return Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,

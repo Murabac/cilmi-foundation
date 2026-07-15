@@ -4,8 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../l10n/app_localizations.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
-import '../utils/lineage_name.dart';
-import '../utils/profile_sort.dart';
+import '../utils/father_picker_index.dart';
+import 'father_picker_section.dart';
 
 /// Opens a dialog for admins to add an unclaimed family tree member.
 Future<bool> showAddFamilyMemberDialog(
@@ -46,81 +46,6 @@ Future<bool> showAddFamilyMemberDialog(
   return created ?? false;
 }
 
-class _FatherPickerIndex {
-  _FatherPickerIndex({
-    required this.profiles,
-    required this.byId,
-    required this.lineageById,
-    required this.branches,
-    required this.patriarchId,
-  });
-
-  final List<Profile> profiles;
-  final Map<String, Profile> byId;
-  final Map<String, String> lineageById;
-  final List<Profile> branches;
-  final String? patriarchId;
-
-  static _FatherPickerIndex fromProfiles(List<Profile> profiles) {
-    final byId = {for (final p in profiles) p.id: p};
-    final lineageById = {
-      for (final p in profiles)
-        p.id: buildPatrilinealDisplayName(p, byId),
-    };
-
-    Profile? patriarch;
-    for (final p in profiles) {
-      if (p.fullName.toUpperCase().contains('SHEEKH YONIS')) {
-        patriarch = p;
-        break;
-      }
-    }
-    patriarch ??= profiles.where((p) => p.fatherId == null).cast<Profile?>().firstOrNull;
-
-    final branches = patriarch == null
-        ? <Profile>[]
-        : profiles.where((p) => p.fatherId == patriarch!.id).toList();
-    sortProfilesByAge(branches);
-
-    return _FatherPickerIndex(
-      profiles: profiles,
-      byId: byId,
-      lineageById: lineageById,
-      branches: branches,
-      patriarchId: patriarch?.id,
-    );
-  }
-
-  bool isInBranch(String profileId, String branchId) {
-    if (profileId == branchId) return true;
-    var current = byId[profileId];
-    final visited = <String>{};
-    while (current != null) {
-      if (current.id == branchId) return true;
-      if (current.fatherId == null) return false;
-      if (!visited.add(current.fatherId!)) return false;
-      current = byId[current.fatherId!];
-    }
-    return false;
-  }
-
-  List<Profile> candidates({
-    required String query,
-    String? branchId,
-  }) {
-    final q = query.trim().toLowerCase();
-    final sorted = profiles.toList();
-    sortProfilesByAge(sorted);
-    return sorted.where((p) {
-      if (!canSelectAsFatherForNewMember(p, byId, patriarchId)) return false;
-      if (branchId != null && !isInBranch(p.id, branchId)) return false;
-      if (q.isEmpty) return true;
-      final lineage = (lineageById[p.id] ?? p.fullName).toLowerCase();
-      return p.fullName.toLowerCase().contains(q) || lineage.contains(q);
-    }).toList();
-  }
-}
-
 class _AddFamilyMemberDialog extends StatefulWidget {
   const _AddFamilyMemberDialog({
     required this.l10n,
@@ -146,12 +71,12 @@ class _AddFamilyMemberDialog extends StatefulWidget {
 class _AddFamilyMemberDialogState extends State<_AddFamilyMemberDialog> {
   final _nameCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
-  final _fatherSearchCtrl = TextEditingController();
 
-  late final _FatherPickerIndex _index;
+  late final FatherPickerIndex _index;
 
   Profile? _selectedFather;
   String? _branchFilterId;
+  String? _fatherFilterId;
   Demographic _demographic = Demographic.adult;
   bool _saving = false;
   String? _error;
@@ -159,34 +84,51 @@ class _AddFamilyMemberDialogState extends State<_AddFamilyMemberDialog> {
   @override
   void initState() {
     super.initState();
-    _index = _FatherPickerIndex.fromProfiles(widget.profiles);
+    _index = FatherPickerIndex.fromProfiles(widget.profiles);
     _selectedFather = widget.suggestedFather;
     if (_selectedFather != null) {
-      for (final branch in _index.branches) {
-        if (_index.isInBranch(_selectedFather!.id, branch.id)) {
-          _branchFilterId = branch.id;
-          break;
-        }
-      }
+      _index.applyInitialBranchForFather(
+        _selectedFather!,
+        (id) => _branchFilterId = id,
+      );
     }
-    _fatherSearchCtrl.addListener(() => setState(() {}));
   }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
     _phoneCtrl.dispose();
-    _fatherSearchCtrl.dispose();
     super.dispose();
   }
 
   List<Profile> get _fatherOptions => _index.candidates(
-        query: _fatherSearchCtrl.text,
         branchId: _branchFilterId,
+        fatherFilterId: _fatherFilterId,
       );
 
-  String _lineageLabel(Profile profile) =>
-      _index.lineageById[profile.id] ?? profile.fullName;
+  void _onBranchChanged(String? branchId) {
+    setState(() {
+      _branchFilterId = branchId;
+      _fatherFilterId = null;
+      if (_selectedFather != null &&
+          branchId != null &&
+          !_index.branchIndex.isInBranch(_selectedFather!.id, branchId)) {
+        _selectedFather = null;
+      }
+    });
+  }
+
+  void _onFatherFilterChanged(String? fatherId) {
+    setState(() {
+      _fatherFilterId = fatherId;
+      if (_selectedFather != null &&
+          fatherId != null &&
+          !_index.branchIndex.isDescendantOf(_selectedFather!.id, fatherId) &&
+          _selectedFather!.id != fatherId) {
+        _selectedFather = null;
+      }
+    });
+  }
 
   Future<void> _submit() async {
     final l10n = widget.l10n;
@@ -228,7 +170,6 @@ class _AddFamilyMemberDialogState extends State<_AddFamilyMemberDialog> {
   Widget build(BuildContext context) {
     final l10n = widget.l10n;
     final fathers = _fatherOptions;
-    final visible = fathers.take(40).toList();
 
     return Dialog(
       child: ConstrainedBox(
@@ -277,139 +218,19 @@ class _AddFamilyMemberDialogState extends State<_AddFamilyMemberDialog> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    Text(
-                      l10n.t('select_father'),
-                      style: Theme.of(context).textTheme.titleSmall,
+                    FatherPickerSection(
+                      index: _index,
+                      l10n: l10n,
+                      branchFilterId: _branchFilterId,
+                      fatherFilterId: _fatherFilterId,
+                      selectedFather: _selectedFather,
+                      onBranchChanged: _onBranchChanged,
+                      onFatherFilterChanged: _onFatherFilterChanged,
+                      onFatherSelected: (father) =>
+                          setState(() => _selectedFather = father),
+                      fatherOptions: fathers,
+                      enabled: !_saving,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      l10n.t('add_member_father_search_hint'),
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Colors.grey.shade700,
-                          ),
-                    ),
-                    if (_index.branches.isNotEmpty) ...[
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String?>(
-                        value: _branchFilterId,
-                        decoration: InputDecoration(
-                          labelText: l10n.t('filter_by_branch'),
-                        ),
-                        items: [
-                          DropdownMenuItem<String?>(
-                            value: null,
-                            child: Text(l10n.t('all_branches')),
-                          ),
-                          ..._index.branches.map(
-                            (b) => DropdownMenuItem<String?>(
-                              value: b.id,
-                              child: Text(
-                                l10n
-                                    .t('branch_of_name')
-                                    .replaceAll('{name}', b.fullName),
-                              ),
-                            ),
-                          ),
-                        ],
-                        onChanged: _saving
-                            ? null
-                            : (v) => setState(() => _branchFilterId = v),
-                      ),
-                    ],
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _fatherSearchCtrl,
-                      decoration: InputDecoration(
-                        labelText: l10n.t('search_father_lineage'),
-                        hintText: l10n.t('add_member_father_search_example'),
-                        prefixIcon: const Icon(Icons.search),
-                        suffixIcon: _fatherSearchCtrl.text.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(Icons.clear),
-                                onPressed: () {
-                                  _fatherSearchCtrl.clear();
-                                },
-                              )
-                            : null,
-                      ),
-                    ),
-                    if (_selectedFather != null) ...[
-                      const SizedBox(height: 12),
-                      Card(
-                        color: Theme.of(context).colorScheme.primaryContainer,
-                        child: ListTile(
-                          leading: const Icon(Icons.check_circle),
-                          title: Text(
-                            _selectedFather!.fullName,
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                          subtitle: Text(_lineageLabel(_selectedFather!)),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.close),
-                            onPressed: () =>
-                                setState(() => _selectedFather = null),
-                          ),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 8),
-                    if (visible.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        child: Text(l10n.t('no_search_results')),
-                      )
-                    else ...[
-                      Text(
-                        l10n
-                            .t('father_picker_results')
-                            .replaceAll('{count}', '${visible.length}'),
-                        style: Theme.of(context).textTheme.labelMedium,
-                      ),
-                      const SizedBox(height: 4),
-                      ...visible.map((father) {
-                        final selected = _selectedFather?.id == father.id;
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 6),
-                          color: selected
-                              ? Theme.of(context)
-                                  .colorScheme
-                                  .primaryContainer
-                                  .withValues(alpha: 0.5)
-                              : null,
-                          child: ListTile(
-                            title: Text(
-                              father.fullName,
-                              style: TextStyle(
-                                fontWeight: selected
-                                    ? FontWeight.bold
-                                    : FontWeight.w600,
-                              ),
-                            ),
-                            subtitle: Text(
-                              _lineageLabel(father),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            isThreeLine: true,
-                            onTap: () =>
-                                setState(() => _selectedFather = father),
-                          ),
-                        );
-                      }),
-                      if (fathers.length > visible.length)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text(
-                            l10n
-                                .t('father_picker_narrow_search')
-                                .replaceAll(
-                                  '{count}',
-                                  '${fathers.length - visible.length}',
-                                ),
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ),
-                    ],
                     const SizedBox(height: 16),
                     DropdownButtonFormField<Demographic>(
                       value: _demographic,

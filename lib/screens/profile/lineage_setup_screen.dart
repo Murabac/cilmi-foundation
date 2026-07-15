@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/lineage_registration.dart';
 import '../../providers/providers.dart';
+import '../../utils/phone_utils.dart';
 import '../../widgets/lineage_selection_form.dart';
 import '../../widgets/widgets.dart';
 
@@ -27,9 +28,14 @@ class _LineageSetupScreenState extends ConsumerState<LineageSetupScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final user = ref.read(authServiceProvider).currentUser;
-      final name = user?.userMetadata?['full_name'] as String?;
+      final meta = user?.userMetadata;
+      final name = meta?['full_name'] as String?;
+      final phone = meta?['phone'] as String?;
       if (name != null && _nameCtrl.text.isEmpty) {
         _nameCtrl.text = name;
+      }
+      if (phone != null && _phoneCtrl.text.isEmpty) {
+        _phoneCtrl.text = displayPhone(phone).replaceFirst('+', '');
       }
     });
   }
@@ -63,12 +69,19 @@ class _LineageSetupScreenState extends ConsumerState<LineageSetupScreen> {
           );
 
       ref.invalidate(currentProfileProvider);
+      ref.invalidate(myPendingClaimProvider);
       ref.invalidate(allProfilesProvider);
       ref.invalidate(fullLineageTreeProvider);
       ref.invalidate(memberCountProvider);
       ref.invalidate(unclaimedProfilesProvider);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l10n.t('claim_submitted'))),
+        );
+      }
     } catch (e) {
-      setState(() => _error = e.toString());
+      setState(() => _error = claimErrorMessage(e, l10n));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -108,6 +121,13 @@ class _LineageSetupScreenState extends ConsumerState<LineageSetupScreen> {
                         color: Colors.grey.shade700,
                       ),
                 ),
+                const SizedBox(height: 8),
+                Text(
+                  l10n.t('claim_admin_approval_hint'),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.orange.shade800,
+                      ),
+                ),
                 const SizedBox(height: 24),
                 LineageSelectionForm(
                   selection: _lineage,
@@ -116,6 +136,16 @@ class _LineageSetupScreenState extends ConsumerState<LineageSetupScreen> {
                   phoneController: _phoneCtrl,
                   onChanged: () => setState(() {}),
                 ),
+                if (_lineage.claimProfile == null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    l10n.t('select_your_profile'),
+                    style: TextStyle(
+                      color: Colors.orange.shade800,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
                 if (_error != null) ...[
                   const SizedBox(height: 16),
                   Text(_error!, style: TextStyle(color: Colors.red.shade700)),
@@ -129,7 +159,7 @@ class _LineageSetupScreenState extends ConsumerState<LineageSetupScreen> {
                           width: 20,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : Text(l10n.t('save')),
+                      : Text(l10n.t('submit_for_approval')),
                 ),
               ],
             ),

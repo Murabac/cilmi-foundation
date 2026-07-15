@@ -15,13 +15,15 @@ class MemberPaymentRow {
   const MemberPaymentRow({
     required this.profile,
     this.contribution,
+    this.paymentExempt = false,
   });
 
   final Profile profile;
   final Contribution? contribution;
+  final bool paymentExempt;
 
   PaymentReportCategory get category {
-    if (profile.demographic.isPaymentExempt) {
+    if (paymentExempt) {
       return PaymentReportCategory.exempt;
     }
     if (contribution == null) {
@@ -80,5 +82,5 @@ class MonthlyPaymentReport {
       .fold(0.0, (sum, r) => sum + (r.contribution?.amountPaid ?? 0));
 
   double get expectedAdultTotal =>
-      rows.where((r) => !r.profile.demographic.isPaymentExempt).length * adultRate;
+      rows.where((r) => !r.paymentExempt).length * adultRate;
 }

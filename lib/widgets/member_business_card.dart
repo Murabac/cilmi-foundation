@@ -8,7 +8,10 @@ import '../l10n/app_localizations.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
+import '../utils/branch_filter.dart';
+import '../utils/father_picker_index.dart';
 import '../utils/phone_utils.dart';
+import 'father_picker_section.dart';
 import 'widgets.dart';
 
 Future<void> showMemberBusinessCard(
@@ -336,12 +339,24 @@ class _AdminProfileEditForm extends ConsumerStatefulWidget {
 class _AdminProfileEditFormState extends ConsumerState<_AdminProfileEditForm> {
   late final _phoneCtrl =
       TextEditingController(text: widget.profile.phoneNumber ?? '');
+  late final _fullNameCtrl =
+      TextEditingController(text: widget.profile.fullName);
+  late final _birthOrderCtrl = TextEditingController(
+    text: widget.profile.birthOrder > 0
+        ? '${widget.profile.birthOrder}'
+        : '',
+  );
   late final _occupationCtrl =
       TextEditingController(text: widget.profile.occupation ?? '');
   late final _cityCtrl =
       TextEditingController(text: widget.profile.city ?? '');
   late MaritalStatus? _maritalStatus = widget.profile.maritalStatus;
   late int _careRating = widget.profile.careRating;
+  Profile? _selectedFather;
+  String? _branchFilterId;
+  String? _fatherFilterId;
+  FatherPickerIndex? _pickerIndex;
+  bool _pickerInitialized = false;
   Uint8List? _imageBytes;
   String? _imageExt;
   bool _saving = false;
@@ -349,6 +364,8 @@ class _AdminProfileEditFormState extends ConsumerState<_AdminProfileEditForm> {
   @override
   void dispose() {
     _phoneCtrl.dispose();
+    _fullNameCtrl.dispose();
+    _birthOrderCtrl.dispose();
     _occupationCtrl.dispose();
     _cityCtrl.dispose();
     super.dispose();
@@ -384,6 +401,24 @@ class _AdminProfileEditFormState extends ConsumerState<_AdminProfileEditForm> {
         );
       }
 
+      final fullName = _fullNameCtrl.text.trim();
+      if (fullName.isEmpty) {
+        throw Exception(widget.l10n.t('add_member_name_required'));
+      }
+
+      final birthOrderText = _birthOrderCtrl.text.trim();
+      final birthOrder = birthOrderText.isEmpty
+          ? 0
+          : int.tryParse(birthOrderText) ?? widget.profile.birthOrder;
+
+      final allProfiles = await ref.read(allProfilesProvider.future);
+      final branchIndex = BranchFilterIndex.fromProfiles(allProfiles);
+      final isPatriarch = branchIndex.patriarchId == widget.profile.id;
+
+      if (!isPatriarch && _selectedFather == null) {
+        throw Exception(widget.l10n.t('add_member_father_required'));
+      }
+
       await service.updateMemberProfileAdmin(
         profileId: widget.profile.id,
         phoneNumber: _phoneCtrl.text.trim(),
@@ -392,6 +427,10 @@ class _AdminProfileEditFormState extends ConsumerState<_AdminProfileEditForm> {
         city: _cityCtrl.text.trim(),
         careRating: _careRating,
         avatarUrl: avatarUrl,
+        fullName: fullName,
+        clearFatherId: isPatriarch,
+        fatherId: isPatriarch ? null : _selectedFather!.id,
+        birthOrder: birthOrder,
       );
 
       widget.onSaved();
@@ -406,9 +445,71 @@ class _AdminProfileEditFormState extends ConsumerState<_AdminProfileEditForm> {
     }
   }
 
+  void _initFatherPicker(FatherPickerIndex index) {
+    if (_pickerInitialized) return;
+    _pickerInitialized = true;
+    _pickerIndex = index;
+
+    final fatherId = widget.profile.fatherId;
+    if (fatherId != null) {
+      _selectedFather = index.branchIndex.byId[fatherId];
+      if (_selectedFather != null) {
+        index.applyInitialBranchForFather(
+          _selectedFather!,
+          (id) => _branchFilterId = id,
+        );
+      }
+    }
+  }
+
+  void _onBranchChanged(String? branchId) {
+    setState(() {
+      _branchFilterId = branchId;
+      _fatherFilterId = null;
+      if (_selectedFather != null &&
+          branchId != null &&
+          _pickerIndex != null &&
+          !_pickerIndex!.branchIndex.isInBranch(_selectedFather!.id, branchId)) {
+        _selectedFather = null;
+      }
+    });
+  }
+
+  void _onFatherFilterChanged(String? fatherId) {
+    setState(() {
+      _fatherFilterId = fatherId;
+      if (_selectedFather != null &&
+          fatherId != null &&
+          _pickerIndex != null &&
+          !_pickerIndex!.branchIndex.isDescendantOf(
+            _selectedFather!.id,
+            fatherId,
+          ) &&
+          _selectedFather!.id != fatherId) {
+        _selectedFather = null;
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = widget.l10n;
+    final allProfiles = ref.watch(allProfilesProvider).valueOrNull;
+    if (allProfiles == null) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 24),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final index = FatherPickerIndex.fromProfiles(allProfiles);
+    _initFatherPicker(index);
+    final isPatriarch = index.branchIndex.patriarchId == widget.profile.id;
+    final fatherOptions = index.candidates(
+      branchId: _branchFilterId,
+      fatherFilterId: _fatherFilterId,
+      editingProfileId: widget.profile.id,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -436,14 +537,51 @@ class _AdminProfileEditFormState extends ConsumerState<_AdminProfileEditForm> {
             ],
           ),
         ),
-        const SizedBox(height: 8),
-        Center(
-          child: Text(
-            widget.profile.fullName,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+        const SizedBox(height: 16),
+        Text(
+          l10n.t('lineage_section'),
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          l10n.t('edit_lineage_hint'),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Colors.grey.shade600,
+              ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _fullNameCtrl,
+          decoration: InputDecoration(labelText: l10n.t('member_full_name')),
+        ),
+        const SizedBox(height: 12),
+        if (!isPatriarch) ...[
+          FatherPickerSection(
+            index: index,
+            l10n: l10n,
+            branchFilterId: _branchFilterId,
+            fatherFilterId: _fatherFilterId,
+            selectedFather: _selectedFather,
+            onBranchChanged: _onBranchChanged,
+            onFatherFilterChanged: _onFatherFilterChanged,
+            onFatherSelected: (father) =>
+                setState(() => _selectedFather = father),
+            fatherOptions: fatherOptions,
+            enabled: !_saving,
+          ),
+          const SizedBox(height: 12),
+        ],
+        TextField(
+          controller: _birthOrderCtrl,
+          keyboardType: TextInputType.number,
+          decoration: InputDecoration(
+            labelText: l10n.t('birth_order'),
+            helperText: l10n.t('birth_order_hint'),
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 20),
         TextField(
           controller: _phoneCtrl,
           keyboardType: TextInputType.phone,

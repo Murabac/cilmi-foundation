@@ -2,10 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
-import '../../models/lineage_registration.dart';
 import '../../providers/providers.dart';
 import '../../utils/phone_utils.dart';
-import '../../widgets/lineage_selection_form.dart';
 import '../../widgets/widgets.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
@@ -19,7 +17,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _phoneCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
-  final _lineage = LineageSelection();
 
   bool _loading = false;
   String? _error;
@@ -45,17 +42,14 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
   bool get _canRegister {
     final name = _nameCtrl.text.trim();
-    if (_phoneCtrl.text.trim().isEmpty ||
-        _passwordCtrl.text.length < 6 ||
-        name.isEmpty) {
-      return false;
-    }
-    return _lineage.isComplete(fullName: name);
+    return _phoneCtrl.text.trim().isNotEmpty &&
+        _passwordCtrl.text.length >= 6 &&
+        name.isNotEmpty;
   }
 
   Future<void> _submit(AppLocalizations l10n) async {
     if (!_canRegister) {
-      setState(() => _error = l10n.t('lineage_required'));
+      setState(() => _error = l10n.t('signup_fields_required'));
       return;
     }
 
@@ -66,7 +60,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
     try {
       final auth = ref.read(authServiceProvider);
-      final profileService = ref.read(profileServiceProvider);
       final phoneInput = _phoneCtrl.text.trim();
       final phoneError = validatePhoneForSignup(phoneInput);
       if (phoneError != null) {
@@ -81,17 +74,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       final hasSession = await auth.signUp(phone, password, name);
 
       if (hasSession) {
-        await profileService.completeLineageSetup(
-          selection: _lineage,
-          fullName: name,
-          phoneNumber: phone,
-          l10n: l10n,
-        );
         ref.invalidate(currentProfileProvider);
-        ref.invalidate(allProfilesProvider);
-        ref.invalidate(fullLineageTreeProvider);
-        ref.invalidate(memberCountProvider);
-        ref.invalidate(unclaimedProfilesProvider);
         if (mounted) {
           Navigator.of(context).popUntil((route) => route.isFirst);
         }
@@ -126,7 +109,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
               const AppLogo(height: 100),
               const SizedBox(height: 8),
               Text(
-                l10n.t('register_subtitle'),
+                l10n.t('register_subtitle_claim'),
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: Colors.grey.shade700,
                     ),
@@ -151,20 +134,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 obscureText: true,
                 decoration: InputDecoration(labelText: l10n.t('password')),
               ),
-              const SizedBox(height: 24),
-              LineageSelectionForm(
-                selection: _lineage,
-                l10n: l10n,
-                showNameAndPhone: false,
-                onChanged: _onFormChanged,
-              ),
-              if (!_lineage.isComplete(fullName: _nameCtrl.text.trim())) ...[
-                const SizedBox(height: 12),
-                Text(
-                  l10n.t('lineage_required'),
-                  style: TextStyle(color: Colors.orange.shade800, fontSize: 13),
-                ),
-              ],
               if (_error != null) ...[
                 const SizedBox(height: 16),
                 Text(_error!, style: TextStyle(color: Colors.red.shade700)),

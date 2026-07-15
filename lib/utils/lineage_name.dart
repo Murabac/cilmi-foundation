@@ -57,15 +57,15 @@ int? generationsBelowPatriarch(
   return null;
 }
 
-/// Fathers when adding a member: exclude grandchildren of Sheekh Yonis
-/// (they are still children without families in the tree).
+/// Fathers when adding a member: exclude the youngest generation (no families yet).
+/// Allows patriarch's sons through great-grandsons (depth 1–3).
 bool canSelectAsFatherForNewMember(
   Profile profile,
   Map<String, Profile> byId,
   String? patriarchId,
 ) {
-  if (patriarchId == null) return true;
+  if (patriarchId == null) return false;
   final depth = generationsBelowPatriarch(profile, byId, patriarchId);
-  if (depth == null) return true;
-  return depth < 3;
+  if (depth == null) return false;
+  return depth < 4;
 }

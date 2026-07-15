@@ -58,19 +58,11 @@ int countTreeMembers(TreeNode? root) {
   return 1 + root.descendantCount;
 }
 
-bool treeNodeMatchesSearch(TreeNode node, String query) {
-  if (query.trim().isEmpty) return true;
-  final q = query.trim().toLowerCase();
-  if (node.profile.fullName.toLowerCase().contains(q)) return true;
-  return node.children.any((child) => treeNodeMatchesSearch(child, q));
-}
-
-List<TreeNode> filterSonBranches(List<TreeNode> sons, String query) {
-  if (query.trim().isEmpty) return sons;
-  return sons.where((son) => treeNodeMatchesSearch(son, query)).toList();
-}
-
-bool profileNameMatchesSearch(Profile profile, String query) {
-  if (query.trim().isEmpty) return true;
-  return profile.fullName.toLowerCase().contains(query.trim().toLowerCase());
+TreeNode? findNodeInTree(TreeNode node, String profileId) {
+  if (node.profile.id == profileId) return node;
+  for (final child in node.children) {
+    final found = findNodeInTree(child, profileId);
+    if (found != null) return found;
+  }
+  return null;
 }

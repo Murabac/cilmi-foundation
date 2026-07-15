@@ -268,6 +268,9 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
                 try {
                   final count =
                       await ref.read(contributionServiceProvider).generateMonthlyBilling();
+                  ref.invalidate(monthlyPaymentReportProvider);
+                  ref.invalidate(pendingContributionsProvider);
+                  ref.invalidate(poolBalanceProvider);
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('Generated $count billing entries')),

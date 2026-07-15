@@ -21,10 +21,27 @@ Family lineage & mutual-aid mobile app built with **Flutter** and **Supabase**.
 
 This app uses its own Postgres schema (`reer_sh_yoonis`) inside a shared Supabase project.
 
-Open the Supabase SQL Editor and run:
+**Option A — Run all migrations once (recommended for new projects)**
 
-```
-supabase/migrations/001_initial_schema.sql
+1. Open Supabase **SQL Editor**
+2. Paste and run the entire file: **`supabase/all_migrations.sql`**
+   - Or regenerate it: `powershell -File scripts/combine_migrations.ps1`
+3. Then run **`supabase/seed_family.sql`**
+
+**Option B — Run migrations one by one**
+
+Run each file in `supabase/migrations/` in order (`001` … `018`).
+
+**If you already ran older migrations**, do **not** run `all_migrations.sql` again (error: `type "user_role" already exists`).
+
+1. Run **`supabase/check_migration_status.sql`** to see what is missing  
+2. Run only what you need, e.g. **`supabase/migrations_017_018.sql`** (claim approval + security)
+
+**Nuclear reset (empty schema, then run everything once):**
+
+```sql
+DROP SCHEMA IF EXISTS reer_sh_yoonis CASCADE;
+-- then run all_migrations.sql, then seed_family.sql
 ```
 
 Then expose the schema to the API:
@@ -92,7 +109,7 @@ UPDATE reer_sh_yoonis.profiles SET role = 'manager' WHERE email IN ('manager1@..
 
 ### 4. Seed family tree
 
-The sample lineage from your CSV is at `data/family_tree.csv` (**103 members**).
+The sample lineage from your CSV is at `data/family_tree.csv` (**261 members** from the final SHEEK YOONIS CSV).
 
 Load it into Supabase:
 
@@ -101,9 +118,33 @@ Load it into Supabase:
 -- Paste contents of supabase/seed_family.sql
 ```
 
-Or regenerate after editing the CSV:
+**Full reset (corrupted tree, wrong member count, start over):**
+
+1. Run `supabase/reset_fresh_start.sql` — deletes all profiles, payments, treasury rows, and app auth users
+2. Run `supabase/seed_family.sql` — loads exactly **261** members from the final CSV
+3. Run `supabase/migrations/017_security_and_claim_requests.sql` if not applied yet
+4. Sign up, submit your profile link request, then bootstrap super admin:
+
+```sql
+-- Paste supabase/bootstrap_super_admin.sql (approves your claim + sets super_admin)
+```
+
+Or promote the **login profile** (not the tree row — phone may be empty until approved):
+
+```sql
+UPDATE reer_sh_yoonis.profiles
+SET role = 'super_admin'
+WHERE auth_user_id = (
+  SELECT id FROM auth.users WHERE email LIKE 'rsy.252634749276@%'
+);
+```
+
+Then in the app: **Approve my profile link** on the waiting screen.
+
+Or sync from the latest download and regenerate:
 
 ```powershell
+powershell -File scripts/sync_csv_from_download.ps1
 powershell -File scripts/generate_seed.ps1
 ```
 
@@ -114,9 +155,26 @@ Tree structure from the spreadsheet:
 | GRANDPARENT | Patriarch (Sheekh Yonis) |
 | UNCLE | His sons |
 | CHILD | Grandchildren |
-| GRANDCHILD | Great-grandchildren |
+| GRANDCHILD+ | Deeper generations (columns E–N) |
+
+**Re-seeding only** (keep auth accounts, replace tree data):
+
+```sql
+DELETE FROM reer_sh_yoonis.profiles WHERE auth_user_id IS NULL;
+-- then paste supabase/seed_family.sql
+```
 
 All members are inserted as `family_member` / `adult` with `father_id` links. Update roles, demographics, phones, and care ratings in the app or via SQL after seeding.
+
+### Profile linking (admin approval required)
+
+After migration `017_security_and_claim_requests.sql`:
+
+1. Member signs up and selects their name from the tree
+2. Request goes to **Verification Queue → Profile links** (super admin only) for approval
+3. Only after approval is `auth_user_id` linked to the tree profile
+
+Direct self-claim is disabled. New tree members are added by admins via **Add family member**.
 
 ### 5. Generate monthly billing
 

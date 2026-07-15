@@ -3,17 +3,23 @@ param(
   [string]$OutPath = "$PSScriptRoot\..\supabase\seed_family.sql"
 )
 
-$rows = Import-Csv $CsvPath
-$currentGp = ""
-$currentUncle = ""
-$currentChild = ""
+$maxCol = 14
 $nodes = [ordered]@{}
-
 $siblingOrder = @{}
+$currentKeys = @{}
+$lastRowCols = @()
+$lastVerticalParent = @{}
 
 function Clean([string]$s) {
   if ([string]::IsNullOrWhiteSpace($s)) { return "" }
   return ($s.Trim() -replace "\s+", " ")
+}
+
+function NormalizePatriarch([string]$name) {
+  $n = Clean $name
+  if (-not $n) { return "" }
+  if ($n -match '^(SH\.?\s*YONIS|SHEEKH\s+YONIS)$') { return "SHEEKH YONIS" }
+  return $n
 }
 
 function Slug([string]$name) {
@@ -36,6 +42,8 @@ function DeterministicUuid([string]$key) {
 function Ensure([string]$name, [string]$parentKey, [int]$gen) {
   $name = Clean $name
   if (-not $name) { return $null }
+  if ($gen -eq 0) { $name = NormalizePatriarch $name }
+
   $base = Slug $name
   $key = $base
   $i = 2
@@ -45,10 +53,12 @@ function Ensure([string]$name, [string]$parentKey, [int]$gen) {
     $key = "${base}_$i"
     $i++
   }
+
   $orderKey = if ($parentKey) { $parentKey } else { "__root__" }
   if (-not $siblingOrder.Contains($orderKey)) { $siblingOrder[$orderKey] = 0 }
   $birthOrder = $siblingOrder[$orderKey]
   $siblingOrder[$orderKey] = $birthOrder + 1
+
   $nodes[$key] = @{
     name = $name
     parent = $parentKey
@@ -59,86 +69,165 @@ function Ensure([string]$name, [string]$parentKey, [int]$gen) {
   return $key
 }
 
-foreach ($row in $rows) {
-  $gp = Clean $row.GRANDPARENT
-  $uncle = Clean $row.UNCLE
-  $child = Clean $row.CHILD
-  $grandchild = Clean $row.GRANDCHILD
+function ParseCells([string]$line) {
+  $raw = $line -split ',', ($maxCol + 1)
+  $cells = @()
+  for ($i = 0; $i -le $maxCol; $i++) {
+    if ($i -lt $raw.Count) { $cells += $raw[$i] } else { $cells += "" }
+  }
+  return $cells
+}
 
+function Clear-CurrentFrom([int]$fromCol) {
+  for ($j = $fromCol; $j -le $maxCol; $j++) {
+    if ($currentKeys.ContainsKey($j)) { $currentKeys.Remove($j) }
+  }
+}
+
+function Row-FilledCols([string[]]$cells) {
+  $filled = @()
+  for ($i = 0; $i -le $maxCol; $i++) {
+    if (Clean $cells[$i]) { $filled += $i }
+  }
+  return ,$filled
+}
+
+function Resolve-VerticalParent([int]$col) {
+  $onlyThisCol = ($lastRowCols.Count -eq 1 -and $lastRowCols[0] -eq $col)
+  if ($onlyThisCol -and $lastVerticalParent.ContainsKey($col)) {
+    return $lastVerticalParent[$col]
+  }
+
+  $branchHeader = ($lastRowCols -contains 0) -or ($lastRowCols -contains 1)
+  if ($branchHeader -and $currentKeys.ContainsKey($col - 1)) {
+    return $currentKeys[$col - 1]
+  }
+
+  if (($lastRowCols -contains ($col - 1)) -and ($lastRowCols -contains $col) -and $currentKeys.ContainsKey($col)) {
+    return $currentKeys[$col]
+  }
+
+  for ($p = $col - 1; $p -ge 1; $p--) {
+    if ($currentKeys.ContainsKey($p)) { return $currentKeys[$p] }
+  }
+
+  return $null
+}
+
+$lines = Get-Content -Path $CsvPath -Encoding UTF8
+if ($lines.Count -lt 2) {
+  throw "CSV must include a header row and at least one data row."
+}
+
+foreach ($line in $lines[1..($lines.Count - 1)]) {
+  if ([string]::IsNullOrWhiteSpace($line)) { continue }
+  $cells = ParseCells $line
+  $rowCols = Row-FilledCols $cells
+
+  $gp = NormalizePatriarch (Clean $cells[0])
   if ($gp) {
-    $currentGp = $gp
-    $currentUncle = ""
-    $currentChild = ""
+    $currentKeys[0] = Ensure $gp $null 0
+    Clear-CurrentFrom 1
   }
+
+  $uncle = Clean $cells[1]
   if ($uncle) {
-    $currentUncle = $uncle
-    $currentChild = ""
-  }
-  if ($child) { $currentChild = $child }
-
-  $gpKey = Ensure $currentGp $null 0
-  $uncleKey = $null
-  if ($currentUncle) {
-    $uncleKey = Ensure $currentUncle $gpKey 1
-  }
-
-  if ($grandchild) {
-    $childKey = Ensure $currentChild $uncleKey 2
-    Ensure $grandchild $childKey 3 | Out-Null
-  }
-  elseif ($child -and $uncle) {
-    Ensure $child $uncleKey 2 | Out-Null
-  }
-  elseif ($child -and -not $uncle -and $currentUncle) {
-    if (-not $uncleKey) {
-      foreach ($k in $nodes.Keys) {
-        if ($nodes[$k].name -eq $currentUncle -and $nodes[$k].gen -eq 1) {
-          $uncleKey = $k
-          break
-        }
-      }
+    $gpKey = $currentKeys[0]
+    if (-not $gpKey) {
+      $gpKey = Ensure "SHEEKH YONIS" $null 0
+      $currentKeys[0] = $gpKey
     }
-    Ensure $child $uncleKey 2 | Out-Null
+    $uncleKey = Ensure $uncle $gpKey 1
+    $currentKeys[0] = $gpKey
+    $currentKeys[1] = $uncleKey
+    Clear-CurrentFrom 2
   }
+
+  if (-not $currentKeys.ContainsKey(1)) {
+    $lastRowCols = $rowCols
+    continue
+  }
+
+  $uncleKey = $currentKeys[1]
+  $rowParentKeys = @{ 1 = $uncleKey }
+
+  for ($col = 2; $col -le $maxCol; $col++) {
+    $val = Clean $cells[$col]
+    if (-not $val) { continue }
+
+    if ($col -eq 2) {
+      $parentKey = $uncleKey
+    }
+    elseif ($rowParentKeys.ContainsKey(2) -and (Clean $cells[2])) {
+      # One row per child of the uncle: col 3+ are siblings under the name in col 2
+      # (e.g. CISMAAN -> C/QADIR, YOONIS, MARWA ... not a chain).
+      $parentKey = $rowParentKeys[2]
+      $lastVerticalParent.Remove($col) | Out-Null
+    }
+    elseif (-not (Clean $cells[2]) -and $currentKeys.ContainsKey(2) -and $col -ge 3) {
+      # Vertical continuation rows (col 3 only): siblings under the child in col 2
+      # (e.g. C/RAHIM -> FARAH, FILSAN, FARHIYA ... on separate lines).
+      $parentKey = $currentKeys[2]
+      $lastVerticalParent.Remove($col) | Out-Null
+    }
+    elseif (Clean $cells[$col - 1]) {
+      $parentKey = $rowParentKeys[$col - 1]
+      $lastVerticalParent.Remove($col) | Out-Null
+    }
+    else {
+      $parentKey = Resolve-VerticalParent $col
+      if (-not $parentKey) { continue }
+      $lastVerticalParent[$col] = $parentKey
+    }
+
+    $key = Ensure $val $parentKey $col
+    $rowParentKeys[$col] = $key
+    $currentKeys[$col] = $key
+    Clear-CurrentFrom ($col + 1)
+  }
+
+  $lastRowCols = $rowCols
+}
+
+if (-not $currentKeys.ContainsKey(0)) {
+  Ensure "SHEEKH YONIS" $null 0 | Out-Null
 }
 
 function SqlEscape([string]$s) {
   return $s -replace "'", "''"
 }
 
-$lines = @()
-$lines += "-- Reer Sh Yoonis family tree seed (from SHEEK YOONIS CSV)"
-$lines += "-- Run after 001_initial_schema.sql"
-$lines += "BEGIN;"
-$lines += ""
-$lines += "-- Insert all profiles"
+$out = @()
+$out += "-- Reer Sh Yoonis family tree seed (from SHEEK YOONIS CSV)"
+$out += "-- Run after 001_initial_schema.sql and 016_profile_birth_order.sql"
+$out += "BEGIN;"
+$out += ""
+$out += "-- Insert all profiles"
 foreach ($entry in $nodes.GetEnumerator()) {
-  $key = $entry.Key
   $id = $entry.Value.id
   $name = SqlEscape $entry.Value.name
   $birthOrder = $entry.Value.birth_order
-  $lines += "INSERT INTO reer_sh_yoonis.profiles (id, full_name, email, role, demographic, care_rating, birth_order)"
-  $lines += "VALUES ('$id', '$name', NULL, 'family_member', 'adult', 2, $birthOrder)"
-  $lines += "ON CONFLICT (id) DO UPDATE SET full_name = EXCLUDED.full_name, birth_order = EXCLUDED.birth_order;"
+  $out += "INSERT INTO reer_sh_yoonis.profiles (id, full_name, email, role, demographic, care_rating, birth_order)"
+  $out += "VALUES ('$id', '$name', NULL, 'family_member', 'adult', 2, $birthOrder)"
+  $out += "ON CONFLICT (id) DO UPDATE SET full_name = EXCLUDED.full_name, birth_order = EXCLUDED.birth_order;"
 }
-$lines += ""
-$lines += "-- Link father_id (lineage)"
+$out += ""
+$out += "-- Link father_id (lineage) - re-run this file to fix broken tree connections"
 foreach ($entry in $nodes.GetEnumerator()) {
-  $key = $entry.Key
   $id = $entry.Value.id
   $parent = $entry.Value.parent
   if ($parent) {
     $parentId = $nodes[$parent].id
-    $lines += "UPDATE reer_sh_yoonis.profiles SET father_id = '$parentId' WHERE id = '$id';"
+    $out += "UPDATE reer_sh_yoonis.profiles SET father_id = '$parentId' WHERE id = '$id';"
   }
 }
-$lines += ""
-$lines += "-- Patriarch gets stable flourishing rating"
-$lines += "UPDATE reer_sh_yoonis.profiles SET care_rating = 1 WHERE full_name ILIKE 'SHEEKH YONIS';"
-$lines += ""
-$lines += "COMMIT;"
-$lines += ""
-$lines += "-- Total profiles seeded: $($nodes.Count)"
+$out += ""
+$out += "-- Patriarch gets stable flourishing rating"
+$out += "UPDATE reer_sh_yoonis.profiles SET care_rating = 1 WHERE full_name ILIKE 'SHEEKH YONIS';"
+$out += ""
+$out += "COMMIT;"
+$out += ""
+$out += "-- Total profiles seeded: $($nodes.Count)"
 
-$lines | Set-Content -Path $OutPath -Encoding UTF8
+$out | Set-Content -Path $OutPath -Encoding UTF8
 Write-Host "Wrote $($nodes.Count) profiles to $OutPath"

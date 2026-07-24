@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../models/models.dart';
 import '../../models/payment_report.dart';
 import '../../providers/providers.dart';
 import '../../utils/branch_filter.dart';
@@ -26,6 +27,7 @@ class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
     PaymentReportFilter.paid,
     PaymentReportFilter.pending,
     PaymentReportFilter.unpaid,
+    PaymentReportFilter.exempt,
   ];
 
   PaymentReportFilter _filter = PaymentReportFilter.all;
@@ -200,6 +202,39 @@ class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
     _refreshReport();
   }
 
+  Future<void> _setBillingOverride(
+    MemberPaymentRow row,
+    MonthlyPaymentReport report,
+    BillingOverride? override,
+  ) async {
+    final l10n = await ref.read(localizationsProvider.future);
+    try {
+      await ref.read(contributionServiceProvider).setBillingOverride(
+            profileId: row.profile.id,
+            override: override,
+            ensureBillingMonth: report.month,
+            ensureBillingYear: report.year,
+            adultRate: report.adultRate,
+          );
+      ref.invalidate(allProfilesProvider);
+      _refreshReport();
+      if (!mounted) return;
+      final message = switch (override) {
+        BillingOverride.exempt => l10n.t('billing_set_exempt'),
+        BillingOverride.billable => l10n.t('billing_set_billable'),
+        null => l10n.t('billing_set_automatic'),
+      };
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10nAsync = ref.watch(localizationsProvider);
@@ -231,7 +266,7 @@ class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
                 final byId = {for (final p in allProfiles) p.id: p};
                 final lineageById = {
                   for (final p in allProfiles)
-                    p.id: buildPatrilinealDisplayName(p, byId),
+                    p.id: buildFullMemberName(p, byId),
                 };
 
                 final filtered = report.rows
@@ -339,6 +374,8 @@ class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
                           row: row,
                           report: report,
                           l10n: l10n,
+                          displayName:
+                              lineageById[row.profile.id] ?? row.profile.fullName,
                           onTap: () => showMemberBusinessCard(
                             context,
                             ref,
@@ -347,6 +384,21 @@ class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
                           onMarkPaid: () => _markPaid(row, report),
                           onMarkUnpaid: () => _markUnpaid(row, report),
                           onApprovePending: () => _approvePending(row, report),
+                          onSetExempt: () => _setBillingOverride(
+                            row,
+                            report,
+                            BillingOverride.exempt,
+                          ),
+                          onSetBillable: () => _setBillingOverride(
+                            row,
+                            report,
+                            BillingOverride.billable,
+                          ),
+                          onClearBillingOverride: () => _setBillingOverride(
+                            row,
+                            report,
+                            null,
+                          ),
                         ),
                       ),
                   ],
@@ -491,13 +543,20 @@ class _FilteredSummaryGrid extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: MetricCard(
-                title: l10n.t('collected'),
-                value: '\$${collected.toStringAsFixed(0)}',
-                icon: Icons.payments,
-                color: const Color(0xFF059669),
+                title: l10n.t('exempt'),
+                value: '${_count(PaymentReportCategory.exempt)}',
+                icon: Icons.block,
+                color: Colors.blueGrey,
               ),
             ),
           ],
+        ),
+        const SizedBox(height: 8),
+        MetricCard(
+          title: l10n.t('collected'),
+          value: '\$${collected.toStringAsFixed(0)}',
+          icon: Icons.payments,
+          color: const Color(0xFF059669),
         ),
       ],
     );
@@ -509,19 +568,27 @@ class _MemberPaymentTile extends StatelessWidget {
     required this.row,
     required this.report,
     required this.l10n,
+    required this.displayName,
     required this.onTap,
     required this.onMarkPaid,
     required this.onMarkUnpaid,
     required this.onApprovePending,
+    required this.onSetExempt,
+    required this.onSetBillable,
+    required this.onClearBillingOverride,
   });
 
   final MemberPaymentRow row;
   final MonthlyPaymentReport report;
   final AppLocalizations l10n;
+  final String displayName;
   final VoidCallback onTap;
   final VoidCallback onMarkPaid;
   final VoidCallback onMarkUnpaid;
   final VoidCallback onApprovePending;
+  final VoidCallback onSetExempt;
+  final VoidCallback onSetBillable;
+  final VoidCallback onClearBillingOverride;
 
   Future<void> _callMember(BuildContext context) async {
     final phone = row.profile.phoneNumber;
@@ -573,7 +640,8 @@ class _MemberPaymentTile extends StatelessWidget {
                   children: [
                     _PaymentDetailRow(
                       label: l10n.t('full_name'),
-                      value: row.profile.fullName,
+                      value: displayName,
+                      shrinkValueToFit: true,
                       valueStyle: const TextStyle(fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 6),
@@ -595,6 +663,24 @@ class _MemberPaymentTile extends StatelessWidget {
                               color: Theme.of(context).colorScheme.primary,
                             )
                           : null,
+                    ),
+                    const SizedBox(height: 6),
+                    _PaymentDetailRow(
+                      label: l10n.t('billing_status'),
+                      value: isExempt
+                          ? (row.profile.billingOverride == BillingOverride.exempt
+                              ? l10n.t('billing_status_exempt_manual')
+                              : l10n.t('billing_status_exempt'))
+                          : (row.profile.billingOverride ==
+                                  BillingOverride.billable
+                              ? l10n.t('billing_status_pays_manual')
+                              : l10n.t('billing_status_pays')),
+                      valueStyle: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: isExempt
+                            ? Colors.blueGrey
+                            : const Color(0xFF059669),
+                      ),
                     ),
                     const SizedBox(height: 6),
                     _PaymentDetailRow(
@@ -624,6 +710,12 @@ class _MemberPaymentTile extends StatelessWidget {
                       onMarkUnpaid();
                     case 'approve':
                       onApprovePending();
+                    case 'exempt':
+                      onSetExempt();
+                    case 'billable':
+                      onSetBillable();
+                    case 'auto':
+                      onClearBillingOverride();
                   }
                 },
                 itemBuilder: (_) => [
@@ -657,6 +749,39 @@ class _MemberPaymentTile extends StatelessWidget {
                           const Icon(Icons.undo, size: 20),
                           const SizedBox(width: 8),
                           Text(l10n.t('mark_as_unpaid')),
+                        ],
+                      ),
+                    ),
+                  if (!isExempt)
+                    PopupMenuItem(
+                      value: 'exempt',
+                      child: Row(
+                        children: [
+                          const Icon(Icons.block, color: Colors.blueGrey, size: 20),
+                          const SizedBox(width: 8),
+                          Text(l10n.t('mark_as_exempt')),
+                        ],
+                      ),
+                    ),
+                  if (isExempt)
+                    PopupMenuItem(
+                      value: 'billable',
+                      child: Row(
+                        children: [
+                          const Icon(Icons.payments, color: Color(0xFF059669), size: 20),
+                          const SizedBox(width: 8),
+                          Text(l10n.t('add_to_paying_list')),
+                        ],
+                      ),
+                    ),
+                  if (row.profile.billingOverride != null)
+                    PopupMenuItem(
+                      value: 'auto',
+                      child: Row(
+                        children: [
+                          const Icon(Icons.restart_alt, size: 20),
+                          const SizedBox(width: 8),
+                          Text(l10n.t('use_automatic_billing')),
                         ],
                       ),
                     ),
@@ -698,6 +823,7 @@ class _PaymentDetailRow extends StatelessWidget {
     this.valueColor,
     this.onValueTap,
     this.trailing,
+    this.shrinkValueToFit = false,
   });
 
   final String label;
@@ -706,17 +832,37 @@ class _PaymentDetailRow extends StatelessWidget {
   final Color? valueColor;
   final VoidCallback? onValueTap;
   final Widget? trailing;
+  final bool shrinkValueToFit;
+
+  Widget _buildValue(BuildContext context, {required double maxWidth}) {
+    final baseStyle = (valueStyle ?? Theme.of(context).textTheme.bodyMedium)
+        ?.copyWith(
+          color: valueColor,
+          decoration: onValueTap != null ? TextDecoration.underline : null,
+          fontSize: shrinkValueToFit ? 15 : null,
+        );
+
+    final text = Text(
+      value,
+      maxLines: shrinkValueToFit ? 2 : null,
+      softWrap: !shrinkValueToFit,
+      style: baseStyle,
+    );
+
+    if (!shrinkValueToFit) return text;
+
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: text,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final valueWidget = Text(
-      value,
-      style: (valueStyle ?? Theme.of(context).textTheme.bodyMedium)?.copyWith(
-            color: valueColor,
-            decoration: onValueTap != null ? TextDecoration.underline : null,
-          ),
-    );
-
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -731,12 +877,18 @@ class _PaymentDetailRow extends StatelessWidget {
           ),
         ),
         Expanded(
-          child: onValueTap == null
-              ? valueWidget
-              : InkWell(
-                  onTap: onValueTap,
-                  child: valueWidget,
-                ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final valueWidget =
+                  _buildValue(context, maxWidth: constraints.maxWidth);
+
+              if (onValueTap == null) return valueWidget;
+              return InkWell(
+                onTap: onValueTap,
+                child: valueWidget,
+              );
+            },
+          ),
         ),
         if (trailing != null) ...[
           const SizedBox(width: 4),

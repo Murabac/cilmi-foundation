@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.reershyoonis" "\0"
-            VALUE "FileDescription", "reer_sh_yoonis" "\0"
+            VALUE "FileDescription", "CILMI FOUNDATION" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "reer_sh_yoonis" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.reershyoonis. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 CILMI FOUNDATION. All rights reserved." "\0"
             VALUE "OriginalFilename", "reer_sh_yoonis.exe" "\0"
-            VALUE "ProductName", "reer_sh_yoonis" "\0"
+            VALUE "ProductName", "CILMI FOUNDATION" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

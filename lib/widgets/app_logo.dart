@@ -18,7 +18,7 @@ class AppLogo extends StatelessWidget {
       height: height,
       width: width,
       fit: BoxFit.contain,
-      semanticLabel: 'Sheek Yoonis',
+      semanticLabel: 'CILMI FOUNDATION',
     );
   }
 }

@@ -1,5 +1,5 @@
 name: reer_sh_yoonis
-description: Reer Sh Yoonis — Family Lineage & Mutual-Aid Platform
+description: CILMI FOUNDATION — Family Lineage & Mutual-Aid Platform
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -28,11 +28,14 @@ flutter_launcher_icons:
   android: true
   ios: true
   image_path: assets/logo.png
-  adaptive_icon_background: "#D4E4D4"
+  adaptive_icon_background: "#F1EBD9"
   adaptive_icon_foreground: assets/logo.png
+  adaptive_icon_foreground_inset: 16
   web:
     generate: true
     image_path: assets/logo.png
+    background_color: "#F1EBD9"
+    theme_color: "#102850"
   windows:
     generate: true
     image_path: assets/logo.png
@@ -43,6 +46,7 @@ flutter_launcher_icons:
 flutter:
   uses-material-design: true
   assets:
+    - env.json
     - assets/l10n/en.json
     - assets/l10n/so.json
     - assets/logo.png

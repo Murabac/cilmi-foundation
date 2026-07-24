@@ -4,7 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
+import '../../utils/branch_filter.dart';
+import '../../utils/lineage_name.dart';
 import '../../widgets/add_family_member_dialog.dart';
+import '../../widgets/branch_father_filters.dart';
 import '../../widgets/member_business_card.dart';
 import '../../widgets/widgets.dart';
 
@@ -20,10 +23,24 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
   final _merchantCtrl = TextEditingController();
   final _ussdCtrl = TextEditingController();
   String _language = 'en';
+  FamilyTreeViewMode _familyTreeView = FamilyTreeViewMode.chart;
   bool _saving = false;
   bool _resetting = false;
   bool _releasingClaims = false;
   bool _initialized = false;
+  String? _memberBranchFilterId;
+  String? _memberFatherFilterId;
+
+  void _onMemberBranchChanged(String? branchId) {
+    setState(() {
+      _memberBranchFilterId = branchId;
+      _memberFatherFilterId = null;
+    });
+  }
+
+  void _onMemberFatherChanged(String? fatherId) {
+    setState(() => _memberFatherFilterId = fatherId);
+  }
 
   @override
   void dispose() {
@@ -39,6 +56,7 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
     _merchantCtrl.text = settings.paymentMerchantId;
     _ussdCtrl.text = settings.ussdServiceCode;
     _language = settings.appLanguage;
+    _familyTreeView = settings.familyTreeView;
     _initialized = true;
   }
 
@@ -71,6 +89,7 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
             language: _language,
             paymentMerchantId: _merchantCtrl.text.trim(),
             ussdServiceCode: _ussdCtrl.text.trim(),
+            familyTreeView: _familyTreeView,
           );
       ref.read(localeProvider.notifier).state = _language;
       ref.invalidate(globalSettingsProvider);
@@ -247,6 +266,37 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
                       groupValue: _language,
                       onChanged: (v) => setState(() => _language = v!),
                     ),
+                    const SizedBox(height: 16),
+                    Text(
+                      l10n.t('family_tree_view_setting'),
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      l10n.t('family_tree_view_hint'),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.grey.shade700,
+                          ),
+                    ),
+                    const SizedBox(height: 8),
+                    SegmentedButton<FamilyTreeViewMode>(
+                      segments: [
+                        ButtonSegment(
+                          value: FamilyTreeViewMode.chart,
+                          label: Text(l10n.t('tree_view_chart')),
+                          icon: const Icon(Icons.account_tree_outlined),
+                        ),
+                        ButtonSegment(
+                          value: FamilyTreeViewMode.list,
+                          label: Text(l10n.t('tree_view_list')),
+                          icon: const Icon(Icons.view_list_outlined),
+                        ),
+                      ],
+                      selected: {_familyTreeView},
+                      onSelectionChanged: (selected) {
+                        setState(() => _familyTreeView = selected.first);
+                      },
+                    ),
                     const SizedBox(height: 8),
                     FilledButton(
                       onPressed: _saving ? null : () => _save(l10n),
@@ -390,60 +440,122 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
             profilesAsync.when(
               loading: () => LoadingView(message: l10n.t('loading')),
               error: (_, __) => ErrorView(message: l10n.t('error_generic')),
-              data: (profiles) => Column(
-                children: profiles.map((p) {
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: ListTile(
-                      title: Text(p.fullName),
-                      subtitle: Row(
-                        children: [
-                          RoleBadge(role: p.role, l10n: l10n),
-                          const SizedBox(width: 8),
-                          DemographicBadge(demographic: p.demographic, l10n: l10n),
-                        ],
-                      ),
-                      onTap: () => showMemberBusinessCard(context, ref, p),
-                      trailing: PopupMenuButton<String>(
-                        onSelected: (action) => _handleMemberAction(action, p, l10n),
-                        itemBuilder: (_) => [
-                          PopupMenuItem(
-                            value: 'edit_card',
-                            child: Text(l10n.t('edit_member')),
-                          ),
-                          if (p.authUserId != null)
-                            PopupMenuItem(
-                              value: 'release_claim',
-                              child: Text(l10n.t('release_profile_claim')),
-                            ),
-                          if (p.role != UserRole.manager)
-                            PopupMenuItem(
-                              value: 'promote',
-                              child: Text(l10n.t('promote_manager')),
-                            ),
-                          if (p.role == UserRole.manager)
-                            PopupMenuItem(
-                              value: 'demote',
-                              child: Text(l10n.t('demote_member')),
-                            ),
-                          PopupMenuItem(
-                            value: 'adult',
-                            child: Text(l10n.t('demographic_adult')),
-                          ),
-                          PopupMenuItem(
-                            value: 'student',
-                            child: Text(l10n.t('demographic_student')),
-                          ),
-                          PopupMenuItem(
-                            value: 'child',
-                            child: Text(l10n.t('demographic_child')),
-                          ),
-                        ],
-                      ),
-                    ),
+              data: (profiles) {
+                final branchIndex = BranchFilterIndex.fromProfiles(profiles);
+                final byId = {for (final p in profiles) p.id: p};
+                final lineageById = {
+                  for (final p in profiles) p.id: buildFullMemberName(p, byId),
+                };
+
+                var filtered = branchIndex.filterByBranch(
+                  profiles,
+                  _memberBranchFilterId,
+                  profileId: (p) => p.id,
+                );
+                if (_memberFatherFilterId != null) {
+                  filtered = branchIndex.filterByAncestor(
+                    filtered,
+                    _memberFatherFilterId,
+                    profileId: (p) => p.id,
                   );
-                }).toList(),
-              ),
+                }
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (branchIndex.branches.isNotEmpty) ...[
+                      BranchFatherFilters(
+                        index: branchIndex,
+                        l10n: l10n,
+                        branchId: _memberBranchFilterId,
+                        fatherFilterId: _memberFatherFilterId,
+                        onBranchChanged: _onMemberBranchChanged,
+                        onFatherChanged: _onMemberFatherChanged,
+                        lineageById: lineageById,
+                        showFatherFilter: _memberBranchFilterId != null,
+                        fatherOptions: branchIndex.fathersWithChildren(
+                          branchId: _memberBranchFilterId,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '${filtered.length} ${l10n.t('members_label')}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Colors.grey.shade600,
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                    ...filtered.map((p) {
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        child: ListTile(
+                          title: Text(
+                            lineageById[p.id] ?? p.fullName,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Row(
+                            children: [
+                              RoleBadge(role: p.role, l10n: l10n),
+                              const SizedBox(width: 8),
+                              DemographicBadge(
+                                demographic: p.demographic,
+                                l10n: l10n,
+                              ),
+                            ],
+                          ),
+                          onTap: () => showMemberBusinessCard(context, ref, p),
+                          trailing: PopupMenuButton<String>(
+                            onSelected: (action) =>
+                                _handleMemberAction(action, p, l10n),
+                            itemBuilder: (_) => [
+                              PopupMenuItem(
+                                value: 'edit_card',
+                                child: Text(l10n.t('edit_member')),
+                              ),
+                              if (p.authUserId != null)
+                                PopupMenuItem(
+                                  value: 'release_claim',
+                                  child: Text(l10n.t('release_profile_claim')),
+                                ),
+                              if (p.role != UserRole.manager)
+                                PopupMenuItem(
+                                  value: 'promote',
+                                  child: Text(l10n.t('promote_manager')),
+                                ),
+                              if (p.role == UserRole.manager)
+                                PopupMenuItem(
+                                  value: 'demote',
+                                  child: Text(l10n.t('demote_member')),
+                                ),
+                              PopupMenuItem(
+                                value: 'adult',
+                                child: Text(l10n.t('demographic_adult')),
+                              ),
+                              PopupMenuItem(
+                                value: 'student',
+                                child: Text(l10n.t('demographic_student')),
+                              ),
+                              PopupMenuItem(
+                                value: 'child',
+                                child: Text(l10n.t('demographic_child')),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+                    if (filtered.isEmpty)
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Center(child: Text(l10n.t('no_data'))),
+                        ),
+                      ),
+                  ],
+                );
+              },
             ),
           ],
         );

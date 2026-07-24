@@ -7,6 +7,7 @@ import '../models/models.dart';
 import '../utils/payment_exempt.dart';
 import '../models/payment_report.dart';
 import '../services/services.dart';
+import '../utils/lineage_name.dart';
 
 final supabaseClientProvider = Provider<SupabaseClient>(
   (ref) => Supabase.instance.client,
@@ -64,6 +65,12 @@ final profileLineageNameProvider =
     FutureProvider.family<String, String>((ref, profileId) async {
   ref.watch(authStateProvider);
   return ref.watch(profileServiceProvider).buildFullLineageName(profileId);
+});
+
+final profileLineageDisplayProvider =
+    FutureProvider.family<LineageDisplayInfo, String>((ref, profileId) async {
+  ref.watch(authStateProvider);
+  return ref.watch(profileServiceProvider).getLineageDisplayInfo(profileId);
 });
 
 final currentUserFatherProvider = FutureProvider<Profile?>((ref) async {

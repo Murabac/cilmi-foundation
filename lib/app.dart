@@ -27,7 +27,7 @@ class ReerShYoonisApp extends ConsumerWidget {
 
     return l10nAsync.when(
       data: (_) => MaterialApp(
-        title: 'Reer Sh Yoonis',
+        title: 'CILMI FOUNDATION',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light().copyWith(
           textTheme: GoogleFonts.interTextTheme(AppTheme.light().textTheme),
@@ -125,7 +125,7 @@ class SetupRequiredScreen extends StatelessWidget {
               const AppLogo(height: 80),
               const SizedBox(height: 16),
               const Text(
-                'Copy env.json.example to env.json, fill in your Supabase values, then run:',
+                'Add env.json with your Supabase URL and anon key, then run:',
               ),
               const SizedBox(height: 16),
               Container(
@@ -137,7 +137,8 @@ class SetupRequiredScreen extends StatelessWidget {
                 ),
                 child: const SelectableText(
                   'cp env.json.example env.json\n'
-                  'flutter run --dart-define-from-file=env.json',
+                  'flutter run --dart-define-from-file=env.json\n'
+                  '# or: .\\scripts\\run.ps1',
                   style: TextStyle(fontFamily: 'monospace', fontSize: 12),
                 ),
               ),

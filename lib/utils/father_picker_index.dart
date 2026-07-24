@@ -17,7 +17,7 @@ class FatherPickerIndex {
     final branchIndex = BranchFilterIndex.fromProfiles(profiles);
     final lineageById = {
       for (final p in profiles)
-        p.id: buildPatrilinealDisplayName(p, branchIndex.byId),
+        p.id: buildLineageDisplayInfo(p, branchIndex.byId).displayName,
     };
 
     return FatherPickerIndex(

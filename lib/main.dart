@@ -8,6 +8,8 @@ import 'config/supabase_config.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  await SupabaseConfig.loadFromAssetsIfNeeded();
+
   if (SupabaseConfig.isConfigured) {
     await Supabase.initialize(
       url: SupabaseConfig.url,

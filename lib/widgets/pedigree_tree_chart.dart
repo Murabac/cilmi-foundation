@@ -4,7 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../models/lineage_tree.dart';
 import '../models/models.dart';
-import '../theme/app_theme.dart';
+import '../theme/member_status_theme.dart';
+import '../utils/patriarch_resolver.dart';
 
 const _columnWidth = 112.0;
 const _columnGap = 16.0;
@@ -151,16 +152,6 @@ class _PedigreeSubtree extends StatelessWidget {
   final ValueChanged<Profile> onMemberTap;
   final bool isRoot;
 
-  static double _branchRowWidth(List<TreeNode> sons) {
-    if (sons.isEmpty) return _spineWidth + _columnWidth;
-    var width = 0.0;
-    for (var i = 0; i < sons.length; i++) {
-      if (i > 0) width += _columnGap;
-      width += _pedigreeColumnWidth(sons[i]);
-    }
-    return width;
-  }
-
   @override
   Widget build(BuildContext context) {
     if (node.children.isEmpty) {
@@ -171,9 +162,73 @@ class _PedigreeSubtree extends StatelessWidget {
       );
     }
 
+    if (isRoot) {
+      final split = splitPatriarchChildren(node);
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _PatriarchSonsSection(
+            profile: node.profile,
+            sons: split.sons,
+            onMemberTap: onMemberTap,
+          ),
+          if (split.daughters.isNotEmpty) ...[
+            SizedBox(width: _columnGap * 2),
+            _PatriarchDaughtersSection(
+              daughters: split.daughters,
+              onMemberTap: onMemberTap,
+            ),
+          ],
+        ],
+      );
+    }
+
+    return _PatriarchSonsSection(
+      profile: node.profile,
+      sons: node.children,
+      onMemberTap: onMemberTap,
+      emphasized: false,
+    );
+  }
+}
+
+class _PatriarchSonsSection extends StatelessWidget {
+  const _PatriarchSonsSection({
+    required this.profile,
+    required this.sons,
+    required this.onMemberTap,
+    this.emphasized = true,
+  });
+
+  final Profile profile;
+  final List<TreeNode> sons;
+  final ValueChanged<Profile> onMemberTap;
+  final bool emphasized;
+
+  static double _branchRowWidth(List<TreeNode> children) {
+    if (children.isEmpty) return _spineWidth + _columnWidth;
+    var width = 0.0;
+    for (var i = 0; i < children.length; i++) {
+      if (i > 0) width += _columnGap;
+      width += _pedigreeColumnWidth(children[i]);
+    }
+    return width;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (sons.isEmpty) {
+      return _NameCell(
+        profile: profile,
+        onTap: () => onMemberTap(profile),
+        emphasized: emphasized,
+      );
+    }
+
     final columnWidths =
-        node.children.map(_pedigreeColumnWidth).toList(growable: false);
-    final rowWidth = _branchRowWidth(node.children);
+        sons.map(_pedigreeColumnWidth).toList(growable: false);
+    final rowWidth = _branchRowWidth(sons);
     final sonCenterXs = _sonNameCellCenterXs(columnWidths);
     final patriarchCenterX = rowWidth / 2;
 
@@ -185,9 +240,9 @@ class _PedigreeSubtree extends StatelessWidget {
           width: rowWidth,
           child: Center(
             child: _NameCell(
-              profile: node.profile,
-              onTap: () => onMemberTap(node.profile),
-              emphasized: isRoot,
+              profile: profile,
+              onTap: () => onMemberTap(profile),
+              emphasized: emphasized,
             ),
           ),
         ),
@@ -205,18 +260,45 @@ class _PedigreeSubtree extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            for (var i = 0; i < node.children.length; i++) ...[
+            for (var i = 0; i < sons.length; i++) ...[
               if (i > 0) SizedBox(width: _columnGap),
               SizedBox(
                 width: columnWidths[i],
                 child: _PedigreeColumn(
-                  node: node.children[i],
+                  node: sons[i],
                   onMemberTap: onMemberTap,
                 ),
               ),
             ],
           ],
         ),
+      ],
+    );
+  }
+}
+
+class _PatriarchDaughtersSection extends StatelessWidget {
+  const _PatriarchDaughtersSection({
+    required this.daughters,
+    required this.onMemberTap,
+  });
+
+  final List<TreeNode> daughters;
+  final ValueChanged<Profile> onMemberTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < daughters.length; i++) ...[
+          if (i > 0) const SizedBox(height: _siblingRowGap),
+          _PedigreeColumn(
+            node: daughters[i],
+            onMemberTap: onMemberTap,
+          ),
+        ],
       ],
     );
   }
@@ -395,13 +477,17 @@ class _NameCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ratingColor = CareRatingTheme.colorFor(profile.careRating);
+    final statusColor = MemberStatusTheme.colorFor(
+          demographic: profile.demographic,
+          maritalStatus: profile.maritalStatus,
+        ) ??
+        Colors.grey.shade500;
     final height = compact ? _compactCellHeight : _cellHeight;
-    final borderColor = Colors.grey.shade600;
-    final dividerColor = Colors.grey.shade400;
+    final fill = statusColor.withValues(alpha: emphasized ? 0.22 : 0.12);
+    final borderColor = statusColor.withValues(alpha: 0.85);
 
     return Material(
-      color: emphasized ? Colors.grey.shade100 : Colors.white,
+      color: fill,
       child: InkWell(
         onTap: onTap,
         child: Container(
@@ -409,23 +495,10 @@ class _NameCell extends StatelessWidget {
           height: height,
           padding: const EdgeInsets.symmetric(horizontal: 6),
           decoration: BoxDecoration(
-            border: Border(
-              top: BorderSide(
-                color: showTopBorder ? dividerColor : borderColor,
-                width: showTopBorder ? 1 : (emphasized ? 1.5 : 1),
-              ),
-              left: BorderSide(
-                color: borderColor,
-                width: emphasized ? 1.5 : 1,
-              ),
-              right: BorderSide(
-                color: borderColor,
-                width: emphasized ? 1.5 : 1,
-              ),
-              bottom: BorderSide(
-                color: borderColor,
-                width: emphasized ? 1.5 : 1,
-              ),
+            color: fill,
+            border: Border.all(
+              color: borderColor,
+              width: emphasized ? 1.8 : 1.4,
             ),
           ),
           child: Row(
@@ -436,7 +509,7 @@ class _NameCell extends StatelessWidget {
                 height: 6,
                 margin: const EdgeInsets.only(right: 4),
                 decoration: BoxDecoration(
-                  color: ratingColor,
+                  color: statusColor,
                   shape: BoxShape.circle,
                 ),
               ),
@@ -450,6 +523,7 @@ class _NameCell extends StatelessWidget {
                     fontSize: compact ? 11 : (emphasized ? 14 : 12),
                     fontWeight: emphasized ? FontWeight.w700 : FontWeight.w600,
                     height: 1.15,
+                    color: statusColor.withValues(alpha: 0.95),
                   ),
                 ),
               ),

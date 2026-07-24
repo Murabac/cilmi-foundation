@@ -6,8 +6,10 @@ import '../../models/lineage_tree.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
 import '../../utils/branch_filter.dart';
+import '../../utils/patriarch_resolver.dart';
 import '../../widgets/add_family_member_dialog.dart';
 import '../../widgets/branch_father_filters.dart';
+import '../../widgets/family_tree_list_view.dart';
 import '../../widgets/member_business_card.dart';
 import '../../widgets/pedigree_tree_chart.dart';
 import '../../widgets/widgets.dart';
@@ -43,8 +45,11 @@ class _FamilyTreeScreenState extends ConsumerState<FamilyTreeScreen> {
     final l10nAsync = ref.watch(localizationsProvider);
     final treeAsync = ref.watch(fullLineageTreeProvider);
     final countAsync = ref.watch(memberCountProvider);
+    final settingsAsync = ref.watch(globalSettingsProvider);
     final profileAsync = ref.watch(currentProfileProvider);
     final isAdmin = profileAsync.valueOrNull?.role.isAdminOrManager ?? false;
+    final showListView =
+        settingsAsync.valueOrNull?.familyTreeView == FamilyTreeViewMode.list;
 
     return l10nAsync.when(
       loading: () => const LoadingView(),
@@ -63,9 +68,10 @@ class _FamilyTreeScreenState extends ConsumerState<FamilyTreeScreen> {
             );
           }
 
+          final split = splitPatriarchChildren(root);
           final filteredSons = _branchFilterId == null
-              ? root.children
-              : root.children
+              ? split.sons
+              : split.sons
                   .where((son) => son.profile.id == _branchFilterId)
                   .toList();
           final branchIndex = BranchFilterIndex.fromProfiles(
@@ -85,6 +91,7 @@ class _FamilyTreeScreenState extends ConsumerState<FamilyTreeScreen> {
             onRefresh: () async {
               ref.invalidate(fullLineageTreeProvider);
               ref.invalidate(memberCountProvider);
+              ref.invalidate(globalSettingsProvider);
             },
             child: ListView(
               padding: const EdgeInsets.all(16),
@@ -141,13 +148,14 @@ class _FamilyTreeScreenState extends ConsumerState<FamilyTreeScreen> {
                   ),
                 ],
                 const SizedBox(height: 8),
-                Text(
-                  l10n.t('tree_chart_hint'),
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.grey.shade600,
-                      ),
-                ),
+                if (!showListView)
+                  Text(
+                    l10n.t('tree_chart_hint'),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.grey.shade600,
+                        ),
+                  ),
                 const SizedBox(height: 16),
                 if (root.children.isNotEmpty)
                   BranchFatherFilters(
@@ -157,16 +165,24 @@ class _FamilyTreeScreenState extends ConsumerState<FamilyTreeScreen> {
                     fatherFilterId: _fatherFilterId,
                     onBranchChanged: _onBranchChanged,
                     onFatherChanged: _onFatherFilterChanged,
-                    showFatherFilter: _branchFilterId != null,
+                    showFatherFilter: !showListView && _branchFilterId != null,
                     fatherOptions: branchIndex.fathersWithChildren(
                       branchId: _branchFilterId,
                     ),
                   ),
-                const SizedBox(height: 16),
-                PedigreeTreeChart(
-                  root: chartRoot,
-                  onMemberTap: _openMemberCard,
-                ),
+                if (root.children.isNotEmpty) const SizedBox(height: 16),
+                if (showListView)
+                  FamilyTreeListView(
+                    root: root,
+                    l10n: l10n,
+                    branchFilterId: _branchFilterId,
+                    onMemberTap: _openMemberCard,
+                  )
+                else
+                  PedigreeTreeChart(
+                    root: chartRoot,
+                    onMemberTap: _openMemberCard,
+                  ),
                 const SizedBox(height: 24),
                 Text(
                   '${l10n.t('total_members')}: $total',

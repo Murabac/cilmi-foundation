@@ -14,7 +14,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.textContaining('Copy env.json.example to env.json'),
+      find.textContaining('Add env.json with your Supabase URL'),
       findsOneWidget,
     );
   });

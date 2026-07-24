@@ -1,4 +1,31 @@
 import '../models/models.dart';
+import 'patriarch_resolver.dart';
+
+enum LineageSubtitleKind { sonOf, bornToMother }
+
+class LineageDisplayInfo {
+  const LineageDisplayInfo({
+    required this.displayName,
+    this.subtitleKind,
+    this.subtitleText,
+  });
+
+  final String displayName;
+  final LineageSubtitleKind? subtitleKind;
+  final String? subtitleText;
+}
+
+/// When a daughter's child is linked to their mother via [father_id] for the tree.
+Profile? treeMotherLink(Profile profile, Map<String, Profile> byId) {
+  final parentId = profile.fatherId;
+  if (parentId == null) return null;
+  final parent = byId[parentId];
+  if (parent == null) return null;
+  final patriarch = findPatriarchProfile(byId.values);
+  if (patriarch == null) return null;
+  if (!isPatriarchDaughter(parent, patriarch.id)) return null;
+  return parent;
+}
 
 /// Walks [father_id] from [profile] upward and returns names oldest-last.
 List<String> collectPatrilinealNames(
@@ -31,6 +58,38 @@ String buildPatrilinealDisplayName(
   Map<String, Profile> byId,
 ) {
   return formatPatrilinealName(collectPatrilinealNames(profile, byId));
+}
+
+/// Full chain for lists/reports (e.g. "FADXIYA CABDIQADIR SHEEKH YONIS").
+/// Daughter-branch children keep [Profile.fullName] (external father already in it).
+String buildFullMemberName(Profile profile, Map<String, Profile> byId) {
+  if (treeMotherLink(profile, byId) != null) return profile.fullName;
+  return buildPatrilinealDisplayName(profile, byId);
+}
+
+LineageDisplayInfo buildLineageDisplayInfo(
+  Profile profile,
+  Map<String, Profile> byId,
+) {
+  final mother = treeMotherLink(profile, byId);
+  if (mother != null) {
+    return LineageDisplayInfo(
+      displayName: profile.fullName,
+      subtitleKind: LineageSubtitleKind.bornToMother,
+      subtitleText: mother.fullName,
+    );
+  }
+
+  final names = collectPatrilinealNames(profile, byId);
+  if (names.length <= 1) {
+    return LineageDisplayInfo(displayName: profile.fullName);
+  }
+
+  return LineageDisplayInfo(
+    displayName: profile.fullName,
+    subtitleKind: LineageSubtitleKind.sonOf,
+    subtitleText: formatPatrilinealName(names.sublist(1)),
+  );
 }
 
 /// Generations below the patriarch along the father chain.

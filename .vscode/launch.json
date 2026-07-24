@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Reer Sh Yoonis",
+      "name": "CILMI FOUNDATION",
       "request": "launch",
       "type": "dart",
       "program": "lib/main.dart",
@@ -11,7 +11,7 @@
       ]
     },
     {
-      "name": "Reer Sh Yoonis (profile mode)",
+      "name": "CILMI FOUNDATION (profile mode)",
       "request": "launch",
       "type": "dart",
       "flutterMode": "profile",

@@ -5,15 +5,28 @@ import '../../l10n/app_localizations.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/branch_filter.dart';
 import '../../widgets/add_family_member_dialog.dart';
+import '../../widgets/branch_father_filters.dart';
 import '../../widgets/widgets.dart';
 import '../admin/treasury_screen.dart';
 
-class DashboardScreen extends ConsumerWidget {
+class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+  String? _branchFilterId;
+
+  void _onBranchChanged(String? branchId) {
+    setState(() => _branchFilterId = branchId);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final l10nAsync = ref.watch(localizationsProvider);
     final profileAsync = ref.watch(currentProfileProvider);
     final countAsync = ref.watch(memberCountProvider);
@@ -72,21 +85,47 @@ class DashboardScreen extends ConsumerWidget {
                 loading: () => LoadingView(message: l10n.t('loading')),
                 error: (e, _) => ErrorView(message: e.toString()),
                 data: (members) {
-                  final belowThree =
-                      members.where((p) => p.careRating < 3).toList();
-                  final exactlyThree =
-                      members.where((p) => p.careRating == 3).toList();
-                  final aboveThree =
-                      members.where((p) => p.careRating > 3).toList();
+                  final branchIndex = BranchFilterIndex.fromProfiles(members);
+                  final filtered = branchIndex.filterByBranch(
+                    members,
+                    _branchFilterId,
+                    profileId: (p) => p.id,
+                  );
+                  final stable =
+                      filtered.where((p) => p.careRating == 1).toList();
+                  final underPressure =
+                      filtered.where((p) => p.careRating == 2).toList();
+                  final needsSupport =
+                      filtered.where((p) => p.careRating == 3).toList();
 
                   return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      Text(
+                        l10n.t('family_status'),
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (branchIndex.branches.isNotEmpty)
+                        BranchFatherFilters(
+                          index: branchIndex,
+                          l10n: l10n,
+                          branchId: _branchFilterId,
+                          fatherFilterId: null,
+                          onBranchChanged: _onBranchChanged,
+                          onFatherChanged: (_) {},
+                          showFatherFilter: false,
+                        ),
+                      if (branchIndex.branches.isNotEmpty)
+                        const SizedBox(height: 12),
                       _CareGroupCard(
                         l10n: l10n,
-                        title: l10n.t('care_below_3'),
-                        description: l10n.t('care_below_3_desc'),
-                        profiles: belowThree,
-                        color: CareRatingTheme.colorFor(2),
+                        title: l10n.t('care_group_1'),
+                        description: l10n.t('care_group_1_desc'),
+                        profiles: stable,
+                        color: CareRatingTheme.colorFor(1),
                         icon: Icons.check_circle_outline,
                         isAdmin: isAdmin,
                         ref: ref,
@@ -94,10 +133,10 @@ class DashboardScreen extends ConsumerWidget {
                       const SizedBox(height: 12),
                       _CareGroupCard(
                         l10n: l10n,
-                        title: l10n.t('care_at_3'),
-                        description: l10n.t('care_at_3_desc'),
-                        profiles: exactlyThree,
-                        color: CareRatingTheme.colorFor(3),
+                        title: l10n.t('care_group_2'),
+                        description: l10n.t('care_group_2_desc'),
+                        profiles: underPressure,
+                        color: CareRatingTheme.colorFor(2),
                         icon: Icons.warning_amber_outlined,
                         isAdmin: isAdmin,
                         ref: ref,
@@ -105,10 +144,10 @@ class DashboardScreen extends ConsumerWidget {
                       const SizedBox(height: 12),
                       _CareGroupCard(
                         l10n: l10n,
-                        title: l10n.t('care_above_3'),
-                        description: l10n.t('care_above_3_desc'),
-                        profiles: aboveThree,
-                        color: CareRatingTheme.colorFor(5),
+                        title: l10n.t('care_group_3'),
+                        description: l10n.t('care_group_3_desc'),
+                        profiles: needsSupport,
+                        color: CareRatingTheme.colorFor(3),
                         icon: Icons.error_outline,
                         isAdmin: isAdmin,
                         ref: ref,
@@ -368,7 +407,7 @@ class _CareGroupCardState extends State<_CareGroupCard> {
     Profile profile,
     AppLocalizations l10n,
   ) async {
-    var rating = profile.careRating;
+    var rating = CareRatingTheme.normalize(profile.careRating);
     final hasChildren = ref.read(allProfilesProvider).valueOrNull
             ?.any((p) => p.fatherId == profile.id) ??
         false;
@@ -413,14 +452,12 @@ class _CareGroupCardState extends State<_CareGroupCard> {
                     ),
                   ],
                   const SizedBox(height: 16),
-                  Slider(
-                    value: rating.toDouble(),
-                    min: 1,
-                    max: 5,
-                    divisions: 4,
-                    label: l10n.t(CareRatingTheme.labelKey(rating)),
-                    onChanged: (v) => setState(() => rating = v.round()),
+                  CareRatingPicker(
+                    value: rating,
+                    l10n: l10n,
+                    onChanged: (v) => setState(() => rating = v),
                   ),
+                  const SizedBox(height: 8),
                   CareRatingBadge(rating: rating, l10n: l10n),
                 ],
               );
@@ -431,7 +468,8 @@ class _CareGroupCardState extends State<_CareGroupCard> {
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           FilledButton(
             onPressed: () async {
-              if (hasChildren && rating != profile.careRating) {
+              if (hasChildren &&
+                  rating != CareRatingTheme.normalize(profile.careRating)) {
                 final all = ref.read(allProfilesProvider).valueOrNull ?? [];
                 final count = ref
                     .read(profileServiceProvider)

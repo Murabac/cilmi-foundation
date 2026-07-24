@@ -1,10 +1,25 @@
+import '../theme/app_theme.dart';
+
 enum UserRole { superAdmin, manager, familyMember }
 
 enum Demographic { adult, student, child }
 
-enum MaritalStatus { single, married }
+enum MaritalStatus { single, married, deceased }
 
 enum PaymentStatus { pending, approved, rejected }
+
+/// Admin force billing: null = follow automatic exemption rules.
+enum BillingOverride { exempt, billable }
+
+extension BillingOverrideX on BillingOverride {
+  String get dbValue => name;
+
+  static BillingOverride? fromDb(String? v) => switch (v) {
+        'exempt' => BillingOverride.exempt,
+        'billable' => BillingOverride.billable,
+        _ => null,
+      };
+}
 
 extension UserRoleX on UserRole {
   String get dbValue => switch (this) {
@@ -44,12 +59,14 @@ extension MaritalStatusX on MaritalStatus {
   static MaritalStatus? fromDb(String? v) => switch (v) {
         'married' => MaritalStatus.married,
         'single' => MaritalStatus.single,
+        'deceased' => MaritalStatus.deceased,
         _ => null,
       };
 
   String labelKey() => switch (this) {
         MaritalStatus.single => 'marital_single',
         MaritalStatus.married => 'marital_married',
+        MaritalStatus.deceased => 'marital_deceased',
       };
 }
 
@@ -83,6 +100,7 @@ class Profile {
     this.occupation,
     this.city,
     this.avatarUrl,
+    this.billingOverride,
   });
 
   final String id;
@@ -105,6 +123,7 @@ class Profile {
   final String? occupation;
   final String? city;
   final String? avatarUrl;
+  final BillingOverride? billingOverride;
 
   factory Profile.fromJson(Map<String, dynamic> json) => Profile(
         id: json['id'] as String,
@@ -114,7 +133,8 @@ class Profile {
         phoneNumber: json['phone_number'] as String?,
         role: UserRoleX.fromDb(json['role'] as String?),
         demographic: DemographicX.fromDb(json['demographic'] as String?),
-        careRating: json['care_rating'] as int? ?? 2,
+        careRating:
+            CareRatingTheme.normalize(json['care_rating'] as int? ?? 1),
         birthOrder: json['birth_order'] as int? ?? 0,
         fatherId: json['father_id'] as String?,
         motherId: json['mother_id'] as String?,
@@ -127,6 +147,8 @@ class Profile {
         occupation: json['occupation'] as String?,
         city: json['city'] as String?,
         avatarUrl: json['avatar_url'] as String?,
+        billingOverride:
+            BillingOverrideX.fromDb(json['billing_override'] as String?),
       );
 
   static String? _parseEmbeddedName(dynamic embedded, String field) {
@@ -153,6 +175,7 @@ class Profile {
         if (occupation != null) 'occupation': occupation,
         if (city != null) 'city': city,
         if (avatarUrl != null) 'avatar_url': avatarUrl,
+        'billing_override': billingOverride?.dbValue,
       };
 
   Profile copyWith({
@@ -170,6 +193,8 @@ class Profile {
     String? occupation,
     String? city,
     String? avatarUrl,
+    BillingOverride? billingOverride,
+    bool clearBillingOverride = false,
   }) =>
       Profile(
         id: id,
@@ -190,6 +215,9 @@ class Profile {
         occupation: occupation ?? this.occupation,
         city: city ?? this.city,
         avatarUrl: avatarUrl ?? this.avatarUrl,
+        billingOverride: clearBillingOverride
+            ? null
+            : (billingOverride ?? this.billingOverride),
       );
 }
 
@@ -304,6 +332,7 @@ class GlobalSettings {
     required this.appLanguage,
     required this.paymentMerchantId,
     required this.ussdServiceCode,
+    required this.familyTreeView,
     this.updatedAt,
   });
 
@@ -311,6 +340,7 @@ class GlobalSettings {
   final String appLanguage;
   final String paymentMerchantId;
   final String ussdServiceCode;
+  final FamilyTreeViewMode familyTreeView;
   final DateTime? updatedAt;
 
   factory GlobalSettings.fromJson(Map<String, dynamic> json) => GlobalSettings(
@@ -318,10 +348,26 @@ class GlobalSettings {
         appLanguage: json['app_language'] as String? ?? 'en',
         paymentMerchantId: json['payment_merchant_id'] as String? ?? '123456',
         ussdServiceCode: json['ussd_service_code'] as String? ?? '883',
+        familyTreeView: FamilyTreeViewMode.fromDb(
+          json['family_tree_view'] as String?,
+        ),
         updatedAt: json['updated_at'] != null
             ? DateTime.parse(json['updated_at'] as String)
             : null,
       );
+}
+
+enum FamilyTreeViewMode {
+  chart,
+  list;
+
+  String get dbValue => switch (this) {
+        FamilyTreeViewMode.chart => 'chart',
+        FamilyTreeViewMode.list => 'list',
+      };
+
+  static FamilyTreeViewMode fromDb(String? value) =>
+      value == 'list' ? FamilyTreeViewMode.list : FamilyTreeViewMode.chart;
 }
 
 class TreasuryOutflow {

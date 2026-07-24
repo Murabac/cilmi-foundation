@@ -66,3 +66,20 @@ TreeNode? findNodeInTree(TreeNode node, String profileId) {
   }
   return null;
 }
+
+bool treeNodeMatchesSearch(TreeNode node, String query) {
+  if (query.trim().isEmpty) return true;
+  final q = query.trim().toLowerCase();
+  if (node.profile.fullName.toLowerCase().contains(q)) return true;
+  return node.children.any((child) => treeNodeMatchesSearch(child, q));
+}
+
+List<TreeNode> filterSonBranches(List<TreeNode> sons, String query) {
+  if (query.trim().isEmpty) return sons;
+  return sons.where((son) => treeNodeMatchesSearch(son, query)).toList();
+}
+
+bool profileNameMatchesSearch(Profile profile, String query) {
+  if (query.trim().isEmpty) return true;
+  return profile.fullName.toLowerCase().contains(query.trim().toLowerCase());
+}

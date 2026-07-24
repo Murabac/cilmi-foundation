@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 import '../models/models.dart';
 import '../theme/app_theme.dart';
+import '../theme/member_status_theme.dart';
 
 export 'app_logo.dart';
 
@@ -20,8 +21,9 @@ class CareRatingBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = CareRatingTheme.colorFor(rating);
-    final label = l10n.t(CareRatingTheme.labelKey(rating));
+    final level = CareRatingTheme.normalize(rating);
+    final color = CareRatingTheme.colorFor(level);
+    final label = l10n.t(CareRatingTheme.labelKey(level));
 
     if (compact) {
       return Container(
@@ -39,9 +41,49 @@ class CareRatingBadge extends StatelessWidget {
         border: Border.all(color: color),
       ),
       child: Text(
-        '$rating · $label',
+        '$level · $label',
         style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 12),
       ),
+    );
+  }
+}
+
+class CareRatingPicker extends StatelessWidget {
+  const CareRatingPicker({
+    super.key,
+    required this.value,
+    required this.l10n,
+    required this.onChanged,
+  });
+
+  final int value;
+  final AppLocalizations l10n;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = CareRatingTheme.normalize(value);
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final level in CareRatingTheme.values)
+          ChoiceChip(
+            label: Text(l10n.t(CareRatingTheme.labelKey(level))),
+            selected: selected == level,
+            onSelected: (_) => onChanged(level),
+            selectedColor: CareRatingTheme.colorFor(level).withValues(alpha: 0.2),
+            side: BorderSide(color: CareRatingTheme.colorFor(level)),
+            labelStyle: TextStyle(
+              color: selected == level
+                  ? CareRatingTheme.colorFor(level)
+                  : Colors.grey.shade800,
+              fontWeight:
+                  selected == level ? FontWeight.w600 : FontWeight.w500,
+            ),
+          ),
+      ],
     );
   }
 }
@@ -85,8 +127,97 @@ class DemographicBadge extends StatelessWidget {
       Demographic.student => l10n.t('demographic_student'),
       Demographic.child => l10n.t('demographic_child'),
     };
+    final color = switch (demographic) {
+      Demographic.child => MemberStatusTheme.child,
+      Demographic.student => Colors.deepPurple,
+      Demographic.adult => Colors.grey.shade700,
+    };
 
-    return Text(label, style: Theme.of(context).textTheme.labelMedium);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.55)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w600,
+          fontSize: 12,
+        ),
+      ),
+    );
+  }
+}
+
+class MemberStatusBadge extends StatelessWidget {
+  const MemberStatusBadge({
+    super.key,
+    required this.profile,
+    required this.l10n,
+    this.compact = false,
+  });
+
+  final Profile profile;
+  final AppLocalizations l10n;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = MemberStatusTheme.colorFor(
+      demographic: profile.demographic,
+      maritalStatus: profile.maritalStatus,
+    );
+    final key = MemberStatusTheme.labelKey(
+      demographic: profile.demographic,
+      maritalStatus: profile.maritalStatus,
+    );
+    if (color == null || key == null) {
+      if (compact) {
+        return Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(
+            color: Colors.grey.shade400,
+            shape: BoxShape.circle,
+          ),
+        );
+      }
+      return Text(
+        l10n.t('not_set'),
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Colors.grey.shade600,
+            ),
+      );
+    }
+
+    final label = l10n.t(key);
+    if (compact) {
+      return Container(
+        width: 10,
+        height: 10,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w700,
+          fontSize: 12,
+        ),
+      ),
+    );
   }
 }
 

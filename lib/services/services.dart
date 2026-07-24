@@ -7,6 +7,7 @@ import '../l10n/app_localizations.dart';
 import '../models/lineage_registration.dart';
 import '../models/models.dart';
 import '../models/payment_report.dart';
+import '../theme/app_theme.dart';
 import '../utils/lineage_name.dart';
 import '../utils/payment_exempt.dart';
 import '../utils/profile_sort.dart';
@@ -265,7 +266,7 @@ class ProfileService {
     required String fatherId,
     Demographic demographic = Demographic.adult,
     String? phoneNumber,
-    int careRating = 2,
+    int careRating = 1,
   }) async {
     final trimmedName = fullName.trim();
     if (trimmedName.isEmpty) {
@@ -370,12 +371,19 @@ class ProfileService {
     return sortProfilesInTreeAgeOrder(list);
   }
 
-  Future<String> buildFullLineageName(String profileId) async {
+  Future<LineageDisplayInfo> getLineageDisplayInfo(String profileId) async {
     final all = await getAllProfiles();
     final byId = {for (final p in all) p.id: p};
     final profile = byId[profileId];
-    if (profile == null) return '';
-    return buildPatrilinealDisplayName(profile, byId);
+    if (profile == null) {
+      return const LineageDisplayInfo(displayName: '');
+    }
+    return buildLineageDisplayInfo(profile, byId);
+  }
+
+  Future<String> buildFullLineageName(String profileId) async {
+    final info = await getLineageDisplayInfo(profileId);
+    return info.displayName;
   }
 
   Future<Profile?> getProfileById(String id) async {
@@ -421,7 +429,7 @@ class ProfileService {
     final rows = await _db(_client)
         .from('profiles')
         .select()
-        .gte('care_rating', 3);
+        .gte('care_rating', 2);
     final list = (rows as List).map((e) => Profile.fromJson(e)).toList();
     list.sort((a, b) {
       final byCare = b.careRating.compareTo(a.careRating);
@@ -446,7 +454,7 @@ class ProfileService {
     final rows = await _db(_client)
         .from('profiles')
         .select('id')
-        .gte('care_rating', 4);
+        .eq('care_rating', 3);
     return (rows as List).length;
   }
 
@@ -473,11 +481,12 @@ class ProfileService {
   }
 
   Future<void> updateCareRating(String profileId, int rating) async {
+    final normalized = CareRatingTheme.normalize(rating);
     final all = await getAllProfiles();
     final ids = _selfAndDescendantIds(profileId, all);
     await _db(_client)
         .from('profiles')
-        .update({'care_rating': rating}).inFilter('id', ids);
+        .update({'care_rating': normalized}).inFilter('id', ids);
   }
 
   Future<void> updateRole(String profileId, UserRole role) async {
@@ -496,6 +505,8 @@ class ProfileService {
     required String profileId,
     String? phoneNumber,
     MaritalStatus? maritalStatus,
+    bool clearMaritalStatus = false,
+    Demographic? demographic,
     String? occupation,
     String? city,
     int? careRating,
@@ -507,8 +518,13 @@ class ProfileService {
   }) async {
     final updates = <String, dynamic>{};
     if (phoneNumber != null) updates['phone_number'] = phoneNumber;
-    if (maritalStatus != null) {
+    if (clearMaritalStatus) {
+      updates['marital_status'] = null;
+    } else if (maritalStatus != null) {
       updates['marital_status'] = maritalStatus.dbValue;
+    }
+    if (demographic != null) {
+      updates['demographic'] = demographic.dbValue;
     }
     if (occupation != null) updates['occupation'] = occupation;
     if (city != null) updates['city'] = city;
@@ -581,6 +597,7 @@ class SettingsService {
     String? language,
     String? paymentMerchantId,
     String? ussdServiceCode,
+    FamilyTreeViewMode? familyTreeView,
   }) async {
     final updates = <String, dynamic>{
       'updated_at': DateTime.now().toIso8601String(),
@@ -591,6 +608,9 @@ class SettingsService {
       updates['payment_merchant_id'] = paymentMerchantId;
     }
     if (ussdServiceCode != null) updates['ussd_service_code'] = ussdServiceCode;
+    if (familyTreeView != null) {
+      updates['family_tree_view'] = familyTreeView.dbValue;
+    }
 
     await _db(_client).from('global_settings').update(updates).eq('id', 1);
   }
@@ -826,11 +846,11 @@ class ContributionService {
     }
 
     final rows = profiles
-        .where((p) => !isProfilePaymentExempt(p, allProfiles: profiles))
         .map(
           (p) => MemberPaymentRow(
             profile: p,
             contribution: byUserId[p.id],
+            paymentExempt: isProfilePaymentExempt(p, allProfiles: profiles),
           ),
         )
         .toList();
@@ -841,6 +861,41 @@ class ContributionService {
       rows: rows,
       adultRate: settings.currentAdultRate,
     );
+  }
+
+  /// Admin: force exempt, force billable, or clear override (null = automatic).
+  Future<void> setBillingOverride({
+    required String profileId,
+    required BillingOverride? override,
+    int? ensureBillingMonth,
+    int? ensureBillingYear,
+    double? adultRate,
+  }) async {
+    await _db(_client).from('profiles').update({
+      'billing_override': override?.dbValue,
+    }).eq('id', profileId);
+
+    await _db(_client).rpc('purge_exempt_contributions');
+
+    if (override == BillingOverride.billable &&
+        ensureBillingMonth != null &&
+        ensureBillingYear != null &&
+        adultRate != null) {
+      final existing = await getContributionForPeriod(
+        userId: profileId,
+        month: ensureBillingMonth,
+        year: ensureBillingYear,
+      );
+      if (existing == null) {
+        await _db(_client).from('contributions').insert({
+          'user_id': profileId,
+          'billing_month': ensureBillingMonth,
+          'billing_year': ensureBillingYear,
+          'amount_due': adultRate,
+          'status': 'pending',
+        });
+      }
+    }
   }
 }
 
@@ -987,7 +1042,7 @@ class AdminService {
         .from('treasury_outflows')
         .delete()
         .gte('created_at', '1970-01-01T00:00:00Z');
-    await _db(_client).from('profiles').update({'care_rating': 2});
+    await _db(_client).from('profiles').update({'care_rating': 1});
 
     final patriarch = await _db(_client)
         .from('profiles')

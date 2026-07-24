@@ -8,8 +8,10 @@ import '../l10n/app_localizations.dart';
 import '../models/models.dart';
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
+import '../theme/member_status_theme.dart';
 import '../utils/branch_filter.dart';
 import '../utils/father_picker_index.dart';
+import '../utils/lineage_name.dart';
 import '../utils/phone_utils.dart';
 import 'father_picker_section.dart';
 import 'widgets.dart';
@@ -98,6 +100,7 @@ class _MemberBusinessCardSheetState
                     onSaved: () {
                       ref.invalidate(_profileProvider(widget.profileId));
                       ref.invalidate(profileLineageNameProvider(widget.profileId));
+                      ref.invalidate(profileLineageDisplayProvider(widget.profileId));
                       ref.invalidate(allProfilesProvider);
                       ref.invalidate(fullLineageTreeProvider);
                       setState(() => _editing = false);
@@ -143,8 +146,9 @@ class MemberBusinessCardContent extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final ratingColor = CareRatingTheme.colorFor(profile.careRating);
+    final careLevel = CareRatingTheme.normalize(profile.careRating);
     final dash = l10n.t('not_set');
-    final lineageAsync = ref.watch(profileLineageNameProvider(profile.id));
+    final lineageAsync = ref.watch(profileLineageDisplayProvider(profile.id));
 
     return Card(
       elevation: 4,
@@ -174,24 +178,30 @@ class MemberBusinessCardContent extends ConsumerWidget {
                       fontWeight: FontWeight.bold,
                     ),
               ),
-              data: (lineageName) => Column(
+              data: (info) => Column(
                 children: [
                   Text(
-                    lineageName,
+                    info.displayName,
                     textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                           fontWeight: FontWeight.bold,
-                          height: 1.35,
                         ),
                   ),
-                  if (lineageName.toUpperCase() !=
-                      profile.fullName.toUpperCase()) ...[
-                    const SizedBox(height: 6),
+                  if (info.subtitleKind != null && info.subtitleText != null) ...[
+                    const SizedBox(height: 8),
                     Text(
-                      profile.fullName,
+                      info.subtitleKind == LineageSubtitleKind.bornToMother
+                          ? l10n
+                              .t('born_to_mother')
+                              .replaceAll('{name}', info.subtitleText!)
+                          : l10n
+                              .t('son_of_lineage')
+                              .replaceAll('{lineage}', info.subtitleText!),
                       textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
                             color: Colors.grey.shade600,
+                            fontSize: 10,
+                            height: 1.2,
                           ),
                     ),
                   ],
@@ -209,15 +219,32 @@ class MemberBusinessCardContent extends ConsumerWidget {
             _CardRow(
               icon: Icons.favorite_border,
               label: l10n.t('marital_status'),
-              value: profile.maritalStatus != null
-                  ? l10n.t(profile.maritalStatus!.labelKey())
+              valueWidget: Align(
+                alignment: Alignment.centerLeft,
+                child: MemberStatusBadge(profile: profile, l10n: l10n),
+              ),
+              value: MemberStatusTheme.labelKey(
+                        demographic: profile.demographic,
+                        maritalStatus: profile.maritalStatus,
+                      ) !=
+                      null
+                  ? l10n.t(
+                      MemberStatusTheme.labelKey(
+                        demographic: profile.demographic,
+                        maritalStatus: profile.maritalStatus,
+                      )!,
+                    )
                   : dash,
+              valueColor: MemberStatusTheme.colorFor(
+                demographic: profile.demographic,
+                maritalStatus: profile.maritalStatus,
+              ),
             ),
             _CardRow(
               icon: Icons.health_and_safety_outlined,
               label: l10n.t('care_rating'),
               value:
-                  '${profile.careRating} · ${l10n.t(CareRatingTheme.labelKey(profile.careRating))}',
+                  '$careLevel · ${l10n.t(CareRatingTheme.labelKey(careLevel))}',
               valueColor: ratingColor,
             ),
             _CardRow(
@@ -281,12 +308,14 @@ class _CardRow extends StatelessWidget {
     required this.label,
     required this.value,
     this.valueColor,
+    this.valueWidget,
   });
 
   final IconData icon;
   final String label;
   final String value;
   final Color? valueColor;
+  final Widget? valueWidget;
 
   @override
   Widget build(BuildContext context) {
@@ -302,13 +331,15 @@ class _CardRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(label, style: Theme.of(context).textTheme.labelMedium),
-                Text(
-                  value,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w500,
-                        color: valueColor,
-                      ),
-                ),
+                const SizedBox(height: 2),
+                valueWidget ??
+                    Text(
+                      value,
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                            fontWeight: FontWeight.w500,
+                            color: valueColor,
+                          ),
+                    ),
               ],
             ),
           ),
@@ -351,7 +382,11 @@ class _AdminProfileEditFormState extends ConsumerState<_AdminProfileEditForm> {
   late final _cityCtrl =
       TextEditingController(text: widget.profile.city ?? '');
   late MaritalStatus? _maritalStatus = widget.profile.maritalStatus;
-  late int _careRating = widget.profile.careRating;
+  late Demographic _demographic = widget.profile.demographic;
+  late String? _statusChoice = widget.profile.demographic == Demographic.child
+      ? 'child'
+      : widget.profile.maritalStatus?.name;
+  late int _careRating = CareRatingTheme.normalize(widget.profile.careRating);
   Profile? _selectedFather;
   String? _branchFilterId;
   String? _fatherFilterId;
@@ -419,10 +454,17 @@ class _AdminProfileEditFormState extends ConsumerState<_AdminProfileEditForm> {
         throw Exception(widget.l10n.t('add_member_father_required'));
       }
 
+      final isChildStatus = _statusChoice == 'child';
       await service.updateMemberProfileAdmin(
         profileId: widget.profile.id,
         phoneNumber: _phoneCtrl.text.trim(),
-        maritalStatus: _maritalStatus,
+        maritalStatus: isChildStatus ? null : _maritalStatus,
+        clearMaritalStatus: isChildStatus || _statusChoice == null,
+        demographic: isChildStatus
+            ? Demographic.child
+            : (_demographic == Demographic.child
+                ? Demographic.adult
+                : _demographic),
         occupation: _occupationCtrl.text.trim(),
         city: _cityCtrl.text.trim(),
         careRating: _careRating,
@@ -554,7 +596,13 @@ class _AdminProfileEditFormState extends ConsumerState<_AdminProfileEditForm> {
         const SizedBox(height: 12),
         TextField(
           controller: _fullNameCtrl,
-          decoration: InputDecoration(labelText: l10n.t('member_full_name')),
+          decoration: InputDecoration(
+            labelText: l10n.t('member_full_name'),
+            helperText: treeMotherLink(widget.profile, index.branchIndex.byId) !=
+                    null
+                ? l10n.t('daughter_child_name_hint')
+                : null,
+          ),
         ),
         const SizedBox(height: 12),
         if (!isPatriarch) ...[
@@ -588,31 +636,73 @@ class _AdminProfileEditFormState extends ConsumerState<_AdminProfileEditForm> {
           decoration: InputDecoration(labelText: l10n.t('mobile')),
         ),
         const SizedBox(height: 12),
-        DropdownButtonFormField<MaritalStatus?>(
+        DropdownButtonFormField<String?>(
           decoration: InputDecoration(labelText: l10n.t('marital_status')),
-          initialValue: _maritalStatus,
+          initialValue: _statusChoice,
           items: [
             DropdownMenuItem(value: null, child: Text(l10n.t('not_set'))),
             DropdownMenuItem(
-              value: MaritalStatus.single,
-              child: Text(l10n.t('marital_single')),
+              value: 'single',
+              child: Text(
+                l10n.t('marital_single'),
+                style: const TextStyle(
+                  color: MemberStatusTheme.single,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
             DropdownMenuItem(
-              value: MaritalStatus.married,
-              child: Text(l10n.t('marital_married')),
+              value: 'married',
+              child: Text(
+                l10n.t('marital_married'),
+                style: const TextStyle(
+                  color: MemberStatusTheme.married,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            DropdownMenuItem(
+              value: 'deceased',
+              child: Text(
+                l10n.t('marital_deceased'),
+                style: const TextStyle(
+                  color: MemberStatusTheme.deceased,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            DropdownMenuItem(
+              value: 'child',
+              child: Text(
+                l10n.t('demographic_child'),
+                style: const TextStyle(
+                  color: MemberStatusTheme.child,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
           ],
-          onChanged: (v) => setState(() => _maritalStatus = v),
+          onChanged: (v) => setState(() {
+            _statusChoice = v;
+            _maritalStatus = switch (v) {
+              'single' => MaritalStatus.single,
+              'married' => MaritalStatus.married,
+              'deceased' => MaritalStatus.deceased,
+              _ => null,
+            };
+            if (v == 'child') {
+              _demographic = Demographic.child;
+            } else if (_demographic == Demographic.child) {
+              _demographic = Demographic.adult;
+            }
+          }),
         ),
         const SizedBox(height: 12),
         Text(l10n.t('care_rating')),
-        Slider(
-          value: _careRating.toDouble(),
-          min: 1,
-          max: 5,
-          divisions: 4,
-          label: '$_careRating',
-          onChanged: (v) => setState(() => _careRating = v.round()),
+        CareRatingPicker(
+          value: _careRating,
+          l10n: l10n,
+          onChanged: (v) => setState(() => _careRating = v),
         ),
         TextField(
           controller: _occupationCtrl,

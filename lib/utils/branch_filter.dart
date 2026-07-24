@@ -21,7 +21,13 @@ class BranchFilterIndex {
 
     final branchList = patriarch == null
         ? <Profile>[]
-        : profiles.where((p) => p.fatherId == patriarch.id).toList();
+        : profiles
+            .where(
+              (p) =>
+                  p.fatherId == patriarch.id &&
+                  !isPatriarchDaughter(p, patriarch.id),
+            )
+            .toList();
     sortProfilesByAge(branchList);
 
     return BranchFilterIndex(

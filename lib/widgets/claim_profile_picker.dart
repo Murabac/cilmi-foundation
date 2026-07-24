@@ -142,7 +142,7 @@ class _ClaimProfilePickerState extends ConsumerState<ClaimProfilePicker> {
             final branchIndex = BranchFilterIndex.fromProfiles(allProfiles);
             final lineageById = {
               for (final p in allProfiles)
-                p.id: buildPatrilinealDisplayName(p, branchIndex.byId),
+                p.id: buildLineageDisplayInfo(p, branchIndex.byId).displayName,
             };
             final fathersWithUnclaimed = _fathersWithUnclaimedChildren(
               unclaimed,

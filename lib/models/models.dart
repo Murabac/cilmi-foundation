@@ -1,6 +1,6 @@
 import '../theme/app_theme.dart';
 
-enum UserRole { superAdmin, manager, familyMember }
+enum UserRole { superAdmin, treasury, manager, familyMember }
 
 enum Demographic { adult, student, child }
 
@@ -24,20 +24,39 @@ extension BillingOverrideX on BillingOverride {
 extension UserRoleX on UserRole {
   String get dbValue => switch (this) {
         UserRole.superAdmin => 'super_admin',
+        UserRole.treasury => 'treasury',
         UserRole.manager => 'manager',
         UserRole.familyMember => 'family_member',
       };
 
   static UserRole fromDb(String? v) => switch (v) {
         'super_admin' => UserRole.superAdmin,
+        'treasury' => UserRole.treasury,
         'manager' => UserRole.manager,
         _ => UserRole.familyMember,
       };
 
-  bool get isAdminOrManager =>
-      this == UserRole.superAdmin || this == UserRole.manager;
-
   bool get isSuperAdmin => this == UserRole.superAdmin;
+
+  /// Care ratings (super admin, treasury officers, and admins).
+  bool get canManageCare =>
+      this == UserRole.superAdmin ||
+      this == UserRole.treasury ||
+      this == UserRole.manager;
+
+  /// Payment report / mark paid (same staff as care).
+  bool get canManagePayments => canManageCare;
+
+  /// Pool donations, aid disbursement, and ledger (super admin + treasury).
+  bool get canManageTreasury =>
+      this == UserRole.superAdmin || this == UserRole.treasury;
+
+  /// Any elevated staff role.
+  bool get isElevated =>
+      isSuperAdmin || this == UserRole.manager || this == UserRole.treasury;
+
+  /// Backward-compatible alias for payment/care staff.
+  bool get isAdminOrManager => canManagePayments;
 }
 
 extension DemographicX on Demographic {
@@ -410,6 +429,8 @@ class LedgerEntry {
     required this.amount,
     required this.description,
     this.verifiedByName,
+    this.id,
+    this.source,
   });
 
   final DateTime date;
@@ -417,4 +438,12 @@ class LedgerEntry {
   final double amount;
   final String description;
   final String? verifiedByName;
+
+  /// Row id when this entry can be deleted by a super admin.
+  final String? id;
+  final LedgerSource? source;
+
+  bool get canDelete => id != null && source != null;
 }
+
+enum LedgerSource { contribution, treasuryInflow, treasuryOutflow }

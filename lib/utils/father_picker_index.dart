@@ -29,11 +29,13 @@ class FatherPickerIndex {
   /// [editingProfileId] excludes self and descendants to prevent tree cycles.
   List<Profile> candidates({
     String? branchId,
+    String? subBranchId,
     String? fatherFilterId,
     String? editingProfileId,
   }) {
     final sorted = branchIndex.byId.values.toList();
     sortProfilesByAge(sorted);
+    final scopeId = subBranchId ?? branchId;
     var results = sorted.where((p) {
       if (editingProfileId != null) {
         if (p.id == editingProfileId) return false;
@@ -48,7 +50,7 @@ class FatherPickerIndex {
       )) {
         return false;
       }
-      if (branchId != null && !branchIndex.isInBranch(p.id, branchId)) {
+      if (scopeId != null && !branchIndex.isInBranch(p.id, scopeId)) {
         return false;
       }
       return true;
@@ -58,18 +60,30 @@ class FatherPickerIndex {
       fatherFilterId,
       profileId: (p) => p.id,
     );
-    return results.toList();
+    final list = results.toList();
+    final genScope = fatherFilterId ?? scopeId;
+    branchIndex.sortByGeneration(list, genScope);
+    return list;
   }
 
   void applyInitialBranchForFather(
     Profile father,
-    void Function(String? branchId) setBranchId,
-  ) {
+    void Function(String? branchId) setBranchId, {
+    void Function(String? subBranchId)? setSubBranchId,
+  }) {
     for (final branch in branchIndex.branches) {
-      if (branchIndex.isInBranch(father.id, branch.id)) {
-        setBranchId(branch.id);
-        return;
+      if (!branchIndex.isInBranch(father.id, branch.id)) continue;
+      setBranchId(branch.id);
+      if (setSubBranchId != null) {
+        for (final sub in branchIndex.subBranchesOf(branch.id)) {
+          if (father.id == sub.id ||
+              branchIndex.isInBranch(father.id, sub.id)) {
+            setSubBranchId(sub.id);
+            break;
+          }
+        }
       }
+      return;
     }
   }
 }

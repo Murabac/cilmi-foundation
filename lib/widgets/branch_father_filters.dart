@@ -4,7 +4,7 @@ import '../l10n/app_localizations.dart';
 import '../models/models.dart';
 import '../utils/branch_filter.dart';
 
-/// Branch + father dropdown filters used across tree, registration, and admin flows.
+/// Branch → sub-branch (kids) → parent filters used across tree and admin flows.
 class BranchFatherFilters extends StatelessWidget {
   const BranchFatherFilters({
     super.key,
@@ -14,78 +14,151 @@ class BranchFatherFilters extends StatelessWidget {
     required this.fatherFilterId,
     required this.onBranchChanged,
     required this.onFatherChanged,
+    this.subBranchId,
+    this.onSubBranchChanged,
     this.enabled = true,
     this.lineageById,
     this.fatherOptions,
     this.showFatherFilter = true,
+    this.showSubBranchFilter = true,
   });
 
   final BranchFilterIndex index;
   final AppLocalizations l10n;
   final String? branchId;
+  final String? subBranchId;
   final String? fatherFilterId;
   final ValueChanged<String?> onBranchChanged;
+  final ValueChanged<String?>? onSubBranchChanged;
   final ValueChanged<String?> onFatherChanged;
   final bool enabled;
   final Map<String, String>? lineageById;
   final List<Profile>? fatherOptions;
   final bool showFatherFilter;
+  final bool showSubBranchFilter;
 
   String _fatherLabel(Profile profile) {
     if (branchId != null) return profile.fullName;
     return lineageById?[profile.id] ?? profile.fullName;
   }
 
-  List<Profile> get _fatherItems =>
-      fatherOptions ?? index.fathersWithChildren(branchId: branchId);
+  List<Profile> get _subBranches =>
+      branchId == null ? const [] : index.subBranchesOf(branchId!);
+
+  List<Profile> get _fatherItems {
+    if (fatherOptions != null) return fatherOptions!;
+    final scopeId = subBranchId ?? branchId;
+    return index.fathersWithChildren(branchId: scopeId);
+  }
 
   @override
   Widget build(BuildContext context) {
+    final subBranches = _subBranches;
+    final showSub = showSubBranchFilter &&
+        onSubBranchChanged != null &&
+        branchId != null &&
+        subBranches.isNotEmpty;
+    final fatherItems = _fatherItems;
+    final menuMaxHeight = MediaQuery.sizeOf(context).height * 0.4;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (index.branches.isNotEmpty)
           DropdownButtonFormField<String?>(
-            value: branchId,
+            // Stable key — recreating on selection can crash the menu overlay.
+            key: const ValueKey('branch_filter'),
+            initialValue: branchId,
+            isExpanded: true,
+            menuMaxHeight: menuMaxHeight,
             decoration: InputDecoration(
               labelText: l10n.t('filter_by_branch'),
+              isDense: true,
             ),
             items: [
               DropdownMenuItem<String?>(
                 value: null,
-                child: Text(l10n.t('all_branches')),
+                child: Text(
+                  l10n.t('all_branches'),
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
               ...index.branches.map(
                 (b) => DropdownMenuItem<String?>(
                   value: b.id,
                   child: Text(
                     l10n.t('branch_of_name').replaceAll('{name}', b.fullName),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ),
             ],
             onChanged: enabled ? onBranchChanged : null,
           ),
-        if (showFatherFilter && _fatherItems.isNotEmpty) ...[
-          const SizedBox(height: 12),
+        if (showSub) ...[
+          const SizedBox(height: 10),
           DropdownButtonFormField<String?>(
-            value: fatherFilterId,
+            // Recreate only when the parent branch changes (resets selection).
+            key: ValueKey('sub_filter_$branchId'),
+            initialValue: subBranchId,
+            isExpanded: true,
+            menuMaxHeight: menuMaxHeight,
             decoration: InputDecoration(
-              labelText: l10n.t('filter_by_father'),
+              labelText: l10n.t('filter_by_sub_branch'),
+              isDense: true,
             ),
             items: [
               DropdownMenuItem<String?>(
                 value: null,
-                child: Text(l10n.t('all_fathers')),
+                child: Text(
+                  l10n.t('all_sub_branches'),
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-              ..._fatherItems.map(
+              ...subBranches.map(
+                (s) => DropdownMenuItem<String?>(
+                  value: s.id,
+                  child: Text(
+                    l10n
+                        .t('sub_branch_of_name')
+                        .replaceAll('{name}', s.fullName),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            ],
+            onChanged: enabled ? onSubBranchChanged : null,
+          ),
+        ],
+        if (showFatherFilter && fatherItems.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String?>(
+            // Recreate only when the scope / options change, not on selection.
+            key: ValueKey(
+              'father_filter_${branchId}_${subBranchId}_${fatherItems.length}',
+            ),
+            initialValue: fatherFilterId,
+            isExpanded: true,
+            menuMaxHeight: menuMaxHeight,
+            decoration: InputDecoration(
+              labelText: l10n.t('filter_by_father'),
+              isDense: true,
+            ),
+            items: [
+              DropdownMenuItem<String?>(
+                value: null,
+                child: Text(
+                  l10n.t('all_fathers'),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              ...fatherItems.map(
                 (f) => DropdownMenuItem<String?>(
                   value: f.id,
                   child: Text(
                     l10n
                         .t('father_lineage_label')
                         .replaceAll('{name}', _fatherLabel(f)),
-                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),

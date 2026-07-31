@@ -1,4 +1,5 @@
 import 'models.dart';
+import '../utils/patriarch_resolver.dart';
 import '../utils/profile_sort.dart';
 
 class TreeNode {
@@ -31,15 +32,7 @@ TreeNode? buildLineageTree(List<Profile> profiles) {
     sortProfilesByAge(entry.value);
   }
 
-  Profile? root;
-  for (final profile in profiles) {
-    if (profile.fullName.toUpperCase().contains('SHEEKH YONIS')) {
-      root = profile;
-      break;
-    }
-  }
-
-  root ??= profiles.where((p) => p.fatherId == null).firstOrNull;
+  final root = findPatriarchProfile(profiles);
   if (root == null) return null;
 
   TreeNode buildNode(Profile profile) {

@@ -98,6 +98,7 @@ class RoleBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final label = switch (role) {
       UserRole.superAdmin => l10n.t('role_super_admin'),
+      UserRole.treasury => l10n.t('role_treasury'),
       UserRole.manager => l10n.t('role_manager'),
       UserRole.familyMember => l10n.t('role_family_member'),
     };

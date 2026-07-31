@@ -15,7 +15,10 @@ import '../../widgets/member_business_card.dart';
 import '../../widgets/widgets.dart';
 
 class PaymentReportScreen extends ConsumerStatefulWidget {
-  const PaymentReportScreen({super.key});
+  const PaymentReportScreen({super.key, this.showAppBar = true});
+
+  /// When embedded in [HomeShell], hide the local AppBar to avoid a double bar.
+  final bool showAppBar;
 
   @override
   ConsumerState<PaymentReportScreen> createState() => _PaymentReportScreenState();
@@ -30,15 +33,30 @@ class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
     PaymentReportFilter.exempt,
   ];
 
-  PaymentReportFilter _filter = PaymentReportFilter.all;
   String? _branchFilterId;
+  String? _subBranchFilterId;
   String? _fatherFilterId;
   final _searchCtrl = TextEditingController();
   var _searchQuery = '';
 
+  PaymentReportFilter get _filter =>
+      ref.watch(selectedPaymentReportFilterProvider);
+
+  void _setFilter(PaymentReportFilter filter) {
+    ref.read(selectedPaymentReportFilterProvider.notifier).state = filter;
+  }
+
   void _onBranchChanged(String? branchId) {
     setState(() {
       _branchFilterId = branchId;
+      _subBranchFilterId = null;
+      _fatherFilterId = null;
+    });
+  }
+
+  void _onSubBranchChanged(String? subBranchId) {
+    setState(() {
+      _subBranchFilterId = subBranchId;
       _fatherFilterId = null;
     });
   }
@@ -188,6 +206,58 @@ class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
     }
   }
 
+  Future<void> _deletePayment(MemberPaymentRow row) async {
+    final contribution = row.contribution;
+    if (contribution == null) return;
+
+    final l10n = await ref.read(localizationsProvider.future);
+    if (!mounted) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l10n.t('delete_payment')),
+        content: Text(
+          l10n
+              .t('delete_payment_confirm')
+              .replaceAll('{name}', row.profile.fullName),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(l10n.t('cancel')),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(l10n.t('delete')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await ref
+          .read(contributionServiceProvider)
+          .deleteContribution(contribution.id);
+      _refreshReport();
+      ref.invalidate(poolBalanceProvider);
+      ref.invalidate(auditLedgerProvider);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l10n.t('delete_payment_done'))),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString())),
+        );
+      }
+    }
+  }
+
   Future<void> _approvePending(MemberPaymentRow row, MonthlyPaymentReport report) async {
     final contribution = row.contribution;
     if (contribution == null) return;
@@ -242,32 +312,40 @@ class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
     final reportAsync = ref.watch(monthlyPaymentReportProvider);
 
     return l10nAsync.when(
-      loading: () => const Scaffold(body: LoadingView()),
-      error: (_, __) => const Scaffold(body: ErrorView(message: 'Error')),
+      loading: () => widget.showAppBar
+          ? const Scaffold(body: LoadingView())
+          : const LoadingView(),
+      error: (_, __) => widget.showAppBar
+          ? const Scaffold(body: ErrorView(message: 'Error'))
+          : const ErrorView(message: 'Error'),
       data: (l10n) {
         final monthLabel = DateFormat('MMMM yyyy')
             .format(DateTime(period.year, period.month))
             .toUpperCase();
 
-        return Scaffold(
-          appBar: AppBar(title: Text(l10n.t('payment_report'))),
-          body: RefreshIndicator(
-            onRefresh: () async => _refreshReport(),
-            child: reportAsync.when(
-              loading: () => LoadingView(message: l10n.t('loading')),
-              error: (e, _) => ErrorView(
-                message: e.toString(),
-                onRetry: _refreshReport,
-              ),
-              data: (report) {
-                final allProfiles = ref.watch(allProfilesProvider).valueOrNull ??
-                    report.rows.map((r) => r.profile).toList();
-                final branchIndex = BranchFilterIndex.fromProfiles(allProfiles);
-                final byId = {for (final p in allProfiles) p.id: p};
-                final lineageById = {
-                  for (final p in allProfiles)
-                    p.id: buildFullMemberName(p, byId),
-                };
+        final body = RefreshIndicator(
+          onRefresh: () async => _refreshReport(),
+          child: reportAsync.when(
+            loading: () => LoadingView(message: l10n.t('loading')),
+            error: (e, _) => ErrorView(
+              message: e.toString(),
+              onRetry: _refreshReport,
+            ),
+            data: (report) {
+              final allProfiles = ref.watch(allProfilesProvider).valueOrNull ??
+                  report.rows.map((r) => r.profile).toList();
+              final isSuperAdmin = ref
+                      .watch(currentProfileProvider)
+                      .valueOrNull
+                      ?.role
+                      .isSuperAdmin ??
+                  false;
+              final branchIndex = BranchFilterIndex.fromProfiles(allProfiles);
+              final byId = {for (final p in allProfiles) p.id: p};
+              final lineageById = {
+                for (final p in allProfiles)
+                  p.id: buildFullMemberName(p, byId),
+              };
 
                 final filtered = report.rows
                     .where((r) => r.matchesFilter(_filter))
@@ -275,6 +353,13 @@ class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
                     .where((r) => _matchesAncestor(r, branchIndex))
                     .where((r) => _matchesSearch(r, lineageById))
                     .toList();
+                final scopeId =
+                    _fatherFilterId ?? _subBranchFilterId ?? _branchFilterId;
+                branchIndex.sortItemsByGeneration(
+                  filtered,
+                  scopeId,
+                  profileId: (r) => r.profile.id,
+                );
 
                 return ListView(
                   padding: const EdgeInsets.all(16),
@@ -301,7 +386,7 @@ class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
                         return FilterChip(
                           label: Text(_filterLabel(l10n, f)),
                           selected: _filter == f,
-                          onSelected: (_) => setState(() => _filter = f),
+                          onSelected: (_) => _setFilter(f),
                         );
                       }).toList(),
                     ),
@@ -311,13 +396,16 @@ class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
                         index: branchIndex,
                         l10n: l10n,
                         branchId: _branchFilterId,
+                        subBranchId: _subBranchFilterId,
                         fatherFilterId: _fatherFilterId,
                         onBranchChanged: _onBranchChanged,
+                        onSubBranchChanged: _onSubBranchChanged,
                         onFatherChanged: _onFatherFilterChanged,
                         lineageById: lineageById,
-                        showFatherFilter: _branchFilterId != null,
+                        showFatherFilter:
+                            (_subBranchFilterId ?? _branchFilterId) != null,
                         fatherOptions: branchIndex.fathersWithChildren(
-                          branchId: _branchFilterId,
+                          branchId: _subBranchFilterId ?? _branchFilterId,
                         ),
                       ),
                     const SizedBox(height: 16),
@@ -376,6 +464,8 @@ class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
                           l10n: l10n,
                           displayName:
                               lineageById[row.profile.id] ?? row.profile.fullName,
+                          canDeletePayment:
+                              isSuperAdmin && row.contribution != null,
                           onTap: () => showMemberBusinessCard(
                             context,
                             ref,
@@ -384,6 +474,7 @@ class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
                           onMarkPaid: () => _markPaid(row, report),
                           onMarkUnpaid: () => _markUnpaid(row, report),
                           onApprovePending: () => _approvePending(row, report),
+                          onDeletePayment: () => _deletePayment(row),
                           onSetExempt: () => _setBillingOverride(
                             row,
                             report,
@@ -405,7 +496,12 @@ class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
                 );
               },
             ),
-          ),
+          );
+
+        if (!widget.showAppBar) return body;
+        return Scaffold(
+          appBar: AppBar(title: Text(l10n.t('payment_report'))),
+          body: body,
         );
       },
     );
@@ -422,8 +518,9 @@ class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
   }
 
   bool _matchesBranch(MemberPaymentRow row, BranchFilterIndex index) {
-    if (_branchFilterId == null) return true;
-    return index.isInBranch(row.profile.id, _branchFilterId!);
+    final scopeId = _subBranchFilterId ?? _branchFilterId;
+    if (scopeId == null) return true;
+    return index.isInBranch(row.profile.id, scopeId);
   }
 
   bool _matchesAncestor(MemberPaymentRow row, BranchFilterIndex index) {
@@ -576,6 +673,8 @@ class _MemberPaymentTile extends StatelessWidget {
     required this.onSetExempt,
     required this.onSetBillable,
     required this.onClearBillingOverride,
+    this.canDeletePayment = false,
+    this.onDeletePayment,
   });
 
   final MemberPaymentRow row;
@@ -589,6 +688,8 @@ class _MemberPaymentTile extends StatelessWidget {
   final VoidCallback onSetExempt;
   final VoidCallback onSetBillable;
   final VoidCallback onClearBillingOverride;
+  final bool canDeletePayment;
+  final VoidCallback? onDeletePayment;
 
   Future<void> _callMember(BuildContext context) async {
     final phone = row.profile.phoneNumber;
@@ -710,6 +811,8 @@ class _MemberPaymentTile extends StatelessWidget {
                       onMarkUnpaid();
                     case 'approve':
                       onApprovePending();
+                    case 'delete':
+                      onDeletePayment?.call();
                     case 'exempt':
                       onSetExempt();
                     case 'billable':
@@ -749,6 +852,17 @@ class _MemberPaymentTile extends StatelessWidget {
                           const Icon(Icons.undo, size: 20),
                           const SizedBox(width: 8),
                           Text(l10n.t('mark_as_unpaid')),
+                        ],
+                      ),
+                    ),
+                  if (canDeletePayment)
+                    PopupMenuItem(
+                      value: 'delete',
+                      child: Row(
+                        children: [
+                          Icon(Icons.delete_outline, color: Colors.red.shade700, size: 20),
+                          const SizedBox(width: 8),
+                          Text(l10n.t('delete_payment')),
                         ],
                       ),
                     ),

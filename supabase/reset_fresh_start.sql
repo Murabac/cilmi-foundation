@@ -7,6 +7,7 @@ BEGIN;
 
 -- 1. Operational data (references profiles)
 DELETE FROM reer_sh_yoonis.contributions;
+DELETE FROM reer_sh_yoonis.treasury_inflows;
 DELETE FROM reer_sh_yoonis.treasury_outflows;
 
 DO $$

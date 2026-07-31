@@ -76,6 +76,7 @@ class _AddFamilyMemberDialogState extends State<_AddFamilyMemberDialog> {
 
   Profile? _selectedFather;
   String? _branchFilterId;
+  String? _subBranchFilterId;
   String? _fatherFilterId;
   Demographic _demographic = Demographic.adult;
   bool _saving = false;
@@ -90,6 +91,7 @@ class _AddFamilyMemberDialogState extends State<_AddFamilyMemberDialog> {
       _index.applyInitialBranchForFather(
         _selectedFather!,
         (id) => _branchFilterId = id,
+        setSubBranchId: (id) => _subBranchFilterId = id,
       );
     }
   }
@@ -103,16 +105,30 @@ class _AddFamilyMemberDialogState extends State<_AddFamilyMemberDialog> {
 
   List<Profile> get _fatherOptions => _index.candidates(
         branchId: _branchFilterId,
+        subBranchId: _subBranchFilterId,
         fatherFilterId: _fatherFilterId,
       );
 
   void _onBranchChanged(String? branchId) {
     setState(() {
       _branchFilterId = branchId;
+      _subBranchFilterId = null;
       _fatherFilterId = null;
       if (_selectedFather != null &&
           branchId != null &&
           !_index.branchIndex.isInBranch(_selectedFather!.id, branchId)) {
+        _selectedFather = null;
+      }
+    });
+  }
+
+  void _onSubBranchChanged(String? subBranchId) {
+    setState(() {
+      _subBranchFilterId = subBranchId;
+      _fatherFilterId = null;
+      if (_selectedFather != null &&
+          subBranchId != null &&
+          !_index.branchIndex.isInBranch(_selectedFather!.id, subBranchId)) {
         _selectedFather = null;
       }
     });
@@ -222,9 +238,11 @@ class _AddFamilyMemberDialogState extends State<_AddFamilyMemberDialog> {
                       index: _index,
                       l10n: l10n,
                       branchFilterId: _branchFilterId,
+                      subBranchFilterId: _subBranchFilterId,
                       fatherFilterId: _fatherFilterId,
                       selectedFather: _selectedFather,
                       onBranchChanged: _onBranchChanged,
+                      onSubBranchChanged: _onSubBranchChanged,
                       onFatherFilterChanged: _onFatherFilterChanged,
                       onFatherSelected: (father) =>
                           setState(() => _selectedFather = father),

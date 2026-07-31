@@ -23,11 +23,20 @@ class FamilyTreeScreen extends ConsumerStatefulWidget {
 
 class _FamilyTreeScreenState extends ConsumerState<FamilyTreeScreen> {
   String? _branchFilterId;
+  String? _subBranchFilterId;
   String? _fatherFilterId;
 
   void _onBranchChanged(String? branchId) {
     setState(() {
       _branchFilterId = branchId;
+      _subBranchFilterId = null;
+      _fatherFilterId = null;
+    });
+  }
+
+  void _onSubBranchChanged(String? subBranchId) {
+    setState(() {
+      _subBranchFilterId = subBranchId;
       _fatherFilterId = null;
     });
   }
@@ -47,7 +56,7 @@ class _FamilyTreeScreenState extends ConsumerState<FamilyTreeScreen> {
     final countAsync = ref.watch(memberCountProvider);
     final settingsAsync = ref.watch(globalSettingsProvider);
     final profileAsync = ref.watch(currentProfileProvider);
-    final isAdmin = profileAsync.valueOrNull?.role.isAdminOrManager ?? false;
+    final isAdmin = profileAsync.valueOrNull?.role.canManageCare ?? false;
     final showListView =
         settingsAsync.valueOrNull?.familyTreeView == FamilyTreeViewMode.list;
 
@@ -68,21 +77,25 @@ class _FamilyTreeScreenState extends ConsumerState<FamilyTreeScreen> {
             );
           }
 
-          final split = splitPatriarchChildren(root);
+          final branchSons = foundationBranchNodes(root);
           final filteredSons = _branchFilterId == null
-              ? split.sons
-              : split.sons
+              ? branchSons
+              : branchSons
                   .where((son) => son.profile.id == _branchFilterId)
                   .toList();
           final branchIndex = BranchFilterIndex.fromProfiles(
             _collectProfiles(root),
           );
           final total = countTreeMembers(root);
+          final fatherScopeId = _subBranchFilterId ?? _branchFilterId;
 
           var chartRoot = root;
           if (_fatherFilterId != null) {
             chartRoot =
                 findNodeInTree(root, _fatherFilterId!) ?? chartRoot;
+          } else if (_subBranchFilterId != null) {
+            chartRoot =
+                findNodeInTree(root, _subBranchFilterId!) ?? chartRoot;
           } else if (_branchFilterId != null && filteredSons.isNotEmpty) {
             chartRoot = filteredSons.first;
           }
@@ -136,10 +149,13 @@ class _FamilyTreeScreenState extends ConsumerState<FamilyTreeScreen> {
                   const SizedBox(height: 12),
                   FilledButton.tonalIcon(
                     onPressed: () async {
-                      final added = await showAddFamilyMemberDialog(context, ref);
+                      final added =
+                          await showAddFamilyMemberDialog(context, ref);
                       if (added && context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(l10n.t('add_member_success'))),
+                          SnackBar(
+                            content: Text(l10n.t('add_member_success')),
+                          ),
                         );
                       }
                     },
@@ -162,12 +178,15 @@ class _FamilyTreeScreenState extends ConsumerState<FamilyTreeScreen> {
                     index: branchIndex,
                     l10n: l10n,
                     branchId: _branchFilterId,
+                    subBranchId: _subBranchFilterId,
                     fatherFilterId: _fatherFilterId,
                     onBranchChanged: _onBranchChanged,
+                    onSubBranchChanged: _onSubBranchChanged,
                     onFatherChanged: _onFatherFilterChanged,
-                    showFatherFilter: !showListView && _branchFilterId != null,
+                    showFatherFilter:
+                        !showListView && fatherScopeId != null,
                     fatherOptions: branchIndex.fathersWithChildren(
-                      branchId: _branchFilterId,
+                      branchId: fatherScopeId,
                     ),
                   ),
                 if (root.children.isNotEmpty) const SizedBox(height: 16),
@@ -176,6 +195,7 @@ class _FamilyTreeScreenState extends ConsumerState<FamilyTreeScreen> {
                     root: root,
                     l10n: l10n,
                     branchFilterId: _branchFilterId,
+                    subBranchFilterId: _subBranchFilterId,
                     onMemberTap: _openMemberCard,
                   )
                 else

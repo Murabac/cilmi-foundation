@@ -7,7 +7,6 @@ import '../models/models.dart';
 import '../providers/providers.dart';
 import '../utils/branch_filter.dart';
 import '../utils/lineage_name.dart';
-import '../utils/profile_sort.dart';
 import 'branch_father_filters.dart';
 import 'widgets.dart';
 
@@ -30,11 +29,22 @@ class ClaimProfilePicker extends ConsumerStatefulWidget {
 
 class _ClaimProfilePickerState extends ConsumerState<ClaimProfilePicker> {
   String? _branchFilterId;
+  String? _subBranchFilterId;
   String? _fatherFilterId;
 
   void _selectBranch(String? branchId) {
     setState(() {
       _branchFilterId = branchId;
+      _subBranchFilterId = null;
+      _fatherFilterId = null;
+      widget.selection.claimProfile = null;
+    });
+    widget.onChanged();
+  }
+
+  void _selectSubBranch(String? subBranchId) {
+    setState(() {
+      _subBranchFilterId = subBranchId;
       _fatherFilterId = null;
       widget.selection.claimProfile = null;
     });
@@ -76,7 +86,7 @@ class _ClaimProfilePickerState extends ConsumerState<ClaimProfilePicker> {
       if (seen.add(f.id)) fathers.add(f);
     }
 
-    fathers.sort(compareProfilesByAge);
+    branchIndex.sortByGeneration(fathers, branchId);
     return fathers;
   }
 
@@ -148,24 +158,28 @@ class _ClaimProfilePickerState extends ConsumerState<ClaimProfilePicker> {
               unclaimed,
               allProfiles,
               branchIndex,
-              _branchFilterId,
+              _subBranchFilterId ?? _branchFilterId,
             );
 
             final List<Profile> claimCandidates;
+            final scopeId = _subBranchFilterId ?? _branchFilterId;
             if (_fatherFilterId != null) {
               claimCandidates = unclaimed
                   .where((p) => p.fatherId == _fatherFilterId)
                   .toList();
-            } else if (_branchFilterId != null) {
+            } else if (scopeId != null) {
               claimCandidates = unclaimed
                   .where(
-                    (p) => branchIndex.isInBranch(p.id, _branchFilterId!),
+                    (p) => branchIndex.isInBranch(p.id, scopeId),
                   )
                   .toList();
             } else {
               claimCandidates = unclaimed.toList();
             }
-            sortProfilesByAge(claimCandidates);
+            branchIndex.sortByGeneration(
+              claimCandidates,
+              _fatherFilterId ?? scopeId,
+            );
 
             final mustPickBranch =
                 _branchFilterId == null && unclaimed.length > 20;
@@ -188,12 +202,15 @@ class _ClaimProfilePickerState extends ConsumerState<ClaimProfilePicker> {
                       index: branchIndex,
                       l10n: l10n,
                       branchId: _branchFilterId,
+                      subBranchId: _subBranchFilterId,
                       fatherFilterId: _fatherFilterId,
                       onBranchChanged: _selectBranch,
+                      onSubBranchChanged: _selectSubBranch,
                       onFatherChanged: _selectFatherFilter,
                       lineageById: lineageById,
                       fatherOptions: fathersWithUnclaimed,
-                      showFatherFilter: _branchFilterId != null,
+                      showFatherFilter:
+                          (_subBranchFilterId ?? _branchFilterId) != null,
                     ),
                   const SizedBox(height: 16),
                   if (mustPickBranch)

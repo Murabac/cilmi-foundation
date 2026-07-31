@@ -23,15 +23,22 @@ int? generationsFromPatriarch(Profile profile, List<Profile> allProfiles) {
   return null;
 }
 
-bool _isChildOfPatriarchDaughter(Profile profile, List<Profile> allProfiles) {
+bool _isChildOfSheekhYonisDaughter(Profile profile, List<Profile> allProfiles) {
   final fatherId = profile.fatherId;
   if (fatherId == null) return false;
   final byId = {for (final p in allProfiles) p.id: p};
   final parent = byId[fatherId];
   if (parent == null) return false;
-  final patriarch = findPatriarchProfile(allProfiles);
-  if (patriarch == null) return false;
-  return isPatriarchDaughter(parent, patriarch.id);
+  final sheekh = findSheekhYonisProfile(allProfiles);
+  if (sheekh == null) return false;
+  return isPatriarchDaughter(parent, sheekh.id);
+}
+
+/// Depth of Sheekh Yonis from the foundation root (0 when he is root).
+int _sheekhDepthFromPatriarch(List<Profile> allProfiles) {
+  final sheekh = findSheekhYonisProfile(allProfiles);
+  if (sheekh == null) return 0;
+  return generationsFromPatriarch(sheekh, allProfiles) ?? 0;
 }
 
 /// Automatic exemption (ignores [Profile.billingOverride]).
@@ -43,9 +50,12 @@ bool isAutomaticallyPaymentExempt(
   if (profile.maritalStatus == MaritalStatus.deceased) return true;
 
   final generations = generationsFromPatriarch(profile, allProfiles);
-  if (generations != null && generations <= 1) return true;
-  if (_isChildOfPatriarchDaughter(profile, allProfiles)) return true;
-  if (generations != null && generations >= 3) return true;
+  final sheekhDepth = _sheekhDepthFromPatriarch(allProfiles);
+  // Cilmi/Ahmed/Sheekh|Aadan + their sons (uncles); or legacy Sheekh + sons.
+  if (generations != null && generations <= sheekhDepth + 1) return true;
+  if (_isChildOfSheekhYonisDaughter(profile, allProfiles)) return true;
+  // Below Sheekh-grandchild generation.
+  if (generations != null && generations >= sheekhDepth + 3) return true;
 
   return false;
 }

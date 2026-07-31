@@ -21,7 +21,8 @@ Profile _p(
     );
 
 void main() {
-  final profiles = [
+  // Legacy fixture: Sheekh as root (pre-Cilmi migration).
+  final legacyProfiles = [
     _p('patriarch', 'SHEEKH YONIS'),
     _p('uncle', 'MIRE', fatherId: 'patriarch'),
     _p('grandchild', 'NIMCO', fatherId: 'uncle'),
@@ -32,34 +33,88 @@ void main() {
     _p('daughter_kid', 'SAYNAB ISMAIL', fatherId: 'daughter'),
   ];
 
+  // Cilmi → Ahmed → Sheekh | Aadan
+  final cilmiProfiles = [
+    _p('cilmi', 'CILMI'),
+    _p('ahmed', 'AHMED', fatherId: 'cilmi'),
+    _p('sheekh', 'SHEEKH YONIS', fatherId: 'ahmed'),
+    _p('aadan', 'AADAN', fatherId: 'ahmed'),
+    _p('uncle', 'MIRE', fatherId: 'sheekh'),
+    _p('grandchild', 'NIMCO', fatherId: 'uncle'),
+    _p('below_gc', 'AMIIN', fatherId: 'grandchild'),
+    _p('daughter', 'KHADRA SHEEKH', fatherId: 'sheekh'),
+    _p('daughter_kid', 'SAYNAB ISMAIL', fatherId: 'daughter'),
+    _p('aadan_son', 'MOHAMED', fatherId: 'aadan'),
+  ];
+
   test('findPatriarchProfile prefers named root', () {
-    expect(findPatriarchProfile(profiles)?.id, 'patriarch');
+    expect(findPatriarchProfile(legacyProfiles)?.id, 'patriarch');
+    expect(findPatriarchProfile(cilmiProfiles)?.id, 'cilmi');
+  });
+
+  test('branch filters use Ahmed children under Cilmi', () {
+    final index = BranchFilterIndex.fromProfiles(cilmiProfiles);
+    expect(index.branches.map((b) => b.id).toSet(), {'sheekh', 'aadan'});
   });
 
   test('isProfilePaymentExempt covers patriarch uncles and below-grandchild', () {
     expect(
-      isProfilePaymentExempt(_p('patriarch', 'SHEEKH YONIS'), allProfiles: profiles),
+      isProfilePaymentExempt(_p('patriarch', 'SHEEKH YONIS'),
+          allProfiles: legacyProfiles),
       isTrue,
     );
     expect(
       isProfilePaymentExempt(_p('uncle', 'MIRE', fatherId: 'patriarch'),
-          allProfiles: profiles),
+          allProfiles: legacyProfiles),
       isTrue,
     );
     expect(
       isProfilePaymentExempt(_p('grandchild', 'NIMCO', fatherId: 'uncle'),
-          allProfiles: profiles),
+          allProfiles: legacyProfiles),
       isFalse,
     );
     expect(
       isProfilePaymentExempt(_p('below_gc', 'AMIIN', fatherId: 'grandchild'),
-          allProfiles: profiles),
+          allProfiles: legacyProfiles),
       isTrue,
     );
     expect(
-      isProfilePaymentExempt(_p('student', 'ALI', fatherId: 'uncle',
-              demographic: Demographic.student),
-          allProfiles: profiles),
+      isProfilePaymentExempt(
+          _p('student', 'ALI',
+              fatherId: 'uncle', demographic: Demographic.student),
+          allProfiles: legacyProfiles),
+      isTrue,
+    );
+  });
+
+  test('Cilmi ancestry keeps Sheekh-grandchild billable and uncles exempt', () {
+    expect(
+      isProfilePaymentExempt(_p('cilmi', 'CILMI'), allProfiles: cilmiProfiles),
+      isTrue,
+    );
+    expect(
+      isProfilePaymentExempt(_p('ahmed', 'AHMED', fatherId: 'cilmi'),
+          allProfiles: cilmiProfiles),
+      isTrue,
+    );
+    expect(
+      isProfilePaymentExempt(_p('sheekh', 'SHEEKH YONIS', fatherId: 'ahmed'),
+          allProfiles: cilmiProfiles),
+      isTrue,
+    );
+    expect(
+      isProfilePaymentExempt(_p('uncle', 'MIRE', fatherId: 'sheekh'),
+          allProfiles: cilmiProfiles),
+      isTrue,
+    );
+    expect(
+      isProfilePaymentExempt(_p('grandchild', 'NIMCO', fatherId: 'uncle'),
+          allProfiles: cilmiProfiles),
+      isFalse,
+    );
+    expect(
+      isProfilePaymentExempt(_p('below_gc', 'AMIIN', fatherId: 'grandchild'),
+          allProfiles: cilmiProfiles),
       isTrue,
     );
   });
@@ -68,14 +123,21 @@ void main() {
     expect(
       isProfilePaymentExempt(
         _p('daughter', 'KHADRA SHEEKH', fatherId: 'patriarch'),
-        allProfiles: profiles,
+        allProfiles: legacyProfiles,
       ),
       isTrue,
     );
     expect(
       isProfilePaymentExempt(
         _p('daughter_kid', 'SAYNAB ISMAIL', fatherId: 'daughter'),
-        allProfiles: profiles,
+        allProfiles: legacyProfiles,
+      ),
+      isTrue,
+    );
+    expect(
+      isProfilePaymentExempt(
+        _p('daughter_kid', 'SAYNAB ISMAIL', fatherId: 'daughter'),
+        allProfiles: cilmiProfiles,
       ),
       isTrue,
     );
@@ -88,7 +150,7 @@ void main() {
       fatherId: 'uncle',
     ).copyWith(billingOverride: BillingOverride.exempt);
     expect(
-      isProfilePaymentExempt(billableGrandchild, allProfiles: profiles),
+      isProfilePaymentExempt(billableGrandchild, allProfiles: legacyProfiles),
       isTrue,
     );
 
@@ -98,13 +160,13 @@ void main() {
       fatherId: 'daughter',
     ).copyWith(billingOverride: BillingOverride.billable);
     expect(
-      isProfilePaymentExempt(forcedPayer, allProfiles: profiles),
+      isProfilePaymentExempt(forcedPayer, allProfiles: legacyProfiles),
       isFalse,
     );
   });
 
   test('wouldCreateFatherCycle detects descendant as father', () {
-    final index = BranchFilterIndex.fromProfiles(profiles);
+    final index = BranchFilterIndex.fromProfiles(legacyProfiles);
     expect(index.wouldCreateFatherCycle('uncle', 'grandchild'), isTrue);
     expect(index.wouldCreateFatherCycle('grandchild', 'uncle'), isFalse);
     expect(index.wouldCreateFatherCycle('grandchild', 'grandchild'), isTrue);

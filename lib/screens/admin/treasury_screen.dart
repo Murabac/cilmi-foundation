@@ -6,6 +6,10 @@ import '../../l10n/app_localizations.dart';
 import '../../models/models.dart';
 import '../../providers/providers.dart';
 import '../../services/services.dart';
+import '../../utils/branch_filter.dart';
+import '../../utils/lineage_name.dart';
+import '../../utils/profile_sort.dart';
+import '../../widgets/branch_father_filters.dart';
 import '../../widgets/widgets.dart';
 
 class TreasuryScreen extends ConsumerWidget {
@@ -19,15 +23,20 @@ class TreasuryScreen extends ConsumerWidget {
 
     return l10nAsync.when(
       loading: () => const Scaffold(body: LoadingView()),
-      error: (_, __) => const Scaffold(body: ErrorView(message: 'Error')),
+      error: (_, _) => const Scaffold(body: ErrorView(message: 'Error')),
       data: (l10n) => Scaffold(
         appBar: AppBar(
           title: Text(l10n.t('treasury')),
           actions: [
             IconButton(
-              icon: const Icon(Icons.add),
+              icon: const Icon(Icons.add_circle_outline),
+              tooltip: l10n.t('add_to_pool'),
+              onPressed: () => _openAddToPoolDialog(context, ref, l10n),
+            ),
+            IconButton(
+              icon: const Icon(Icons.volunteer_activism_outlined),
               tooltip: l10n.t('disburse_aid'),
-              onPressed: () => _showDisburseDialog(context, ref, l10n),
+              onPressed: () => _openDisburseDialog(context, ref, l10n),
             ),
           ],
         ),
@@ -40,8 +49,10 @@ class TreasuryScreen extends ConsumerWidget {
             padding: const EdgeInsets.all(16),
             children: [
               balanceAsync.when(
-                loading: () => MetricCard(title: l10n.t('total_pool_balance'), value: '...'),
-                error: (_, __) => MetricCard(title: l10n.t('total_pool_balance'), value: '—'),
+                loading: () =>
+                    MetricCard(title: l10n.t('total_pool_balance'), value: '...'),
+                error: (_, _) =>
+                    MetricCard(title: l10n.t('total_pool_balance'), value: '—'),
                 data: (balance) => MetricCard(
                   title: l10n.t('total_pool_balance'),
                   value: '\$${balance.toStringAsFixed(2)}',
@@ -50,11 +61,14 @@ class TreasuryScreen extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: 24),
-              Text(l10n.t('audit_ledger'), style: Theme.of(context).textTheme.titleMedium),
+              Text(
+                l10n.t('audit_ledger'),
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
               const SizedBox(height: 8),
               ledgerAsync.when(
                 loading: () => LoadingView(message: l10n.t('loading')),
-                error: (_, __) => ErrorView(message: l10n.t('error_generic')),
+                error: (_, _) => ErrorView(message: l10n.t('error_generic')),
                 data: (entries) {
                   if (entries.isEmpty) {
                     return Card(
@@ -65,8 +79,25 @@ class TreasuryScreen extends ConsumerWidget {
                     );
                   }
 
+                  final isSuperAdmin = ref
+                          .watch(currentProfileProvider)
+                          .valueOrNull
+                          ?.role
+                          .isSuperAdmin ??
+                      false;
+
                   return Column(
-                    children: entries.map((e) => _LedgerTile(entry: e, l10n: l10n)).toList(),
+                    children: entries
+                        .map(
+                          (e) => _LedgerTile(
+                            entry: e,
+                            l10n: l10n,
+                            canDelete: isSuperAdmin && e.canDelete,
+                            onDelete: () =>
+                                _deleteLedgerEntry(context, ref, l10n, e),
+                          ),
+                        )
+                        .toList(),
                   );
                 },
               ),
@@ -77,31 +108,376 @@ class TreasuryScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _showDisburseDialog(
+  Future<void> _deleteLedgerEntry(
+    BuildContext context,
+    WidgetRef ref,
+    AppLocalizations l10n,
+    LedgerEntry entry,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l10n.t('delete_ledger_entry')),
+        content: Text(
+          l10n
+              .t('delete_ledger_entry_confirm')
+              .replaceAll('{amount}', entry.amount.toStringAsFixed(2))
+              .replaceAll('{description}', entry.description),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(l10n.t('cancel')),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(l10n.t('delete')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    try {
+      await ref.read(treasuryServiceProvider).deleteLedgerEntry(entry);
+      ref.invalidate(poolBalanceProvider);
+      ref.invalidate(auditLedgerProvider);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l10n.t('delete_ledger_entry_done'))),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString())),
+        );
+      }
+    }
+  }
+
+  Future<void> _openAddToPoolDialog(
     BuildContext context,
     WidgetRef ref,
     AppLocalizations l10n,
   ) async {
-    final amountCtrl = TextEditingController();
-    final reasonCtrl = TextEditingController();
-    Profile? selected;
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => _AddToPoolDialog(l10n: l10n),
+    );
+
+    if (saved == true && context.mounted) {
+      ref.invalidate(poolBalanceProvider);
+      ref.invalidate(auditLedgerProvider);
+    }
+  }
+
+  Future<void> _openDisburseDialog(
+    BuildContext context,
+    WidgetRef ref,
+    AppLocalizations l10n,
+  ) async {
     final profiles = await ref.read(allProfilesProvider.future);
     final approver = await ref.read(currentProfileProvider.future);
     final balance = await ref.read(treasuryServiceProvider).getPoolBalance();
 
     if (!context.mounted) return;
 
-    await showDialog<void>(
+    final saved = await showDialog<bool>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setState) {
-          final amount = double.tryParse(amountCtrl.text.trim()) ?? 0;
-          final exceedsBalance = amount > balance;
-          final invalidAmount = amountCtrl.text.trim().isNotEmpty && amount <= 0;
+      builder: (ctx) => _DisburseAidDialog(
+        l10n: l10n,
+        profiles: profiles,
+        approver: approver,
+        balance: balance,
+      ),
+    );
 
-          return AlertDialog(
-            title: Text(l10n.t('disburse_aid')),
-            content: Column(
+    if (saved == true && context.mounted) {
+      ref.invalidate(poolBalanceProvider);
+      ref.invalidate(auditLedgerProvider);
+    }
+  }
+}
+
+class _AddToPoolDialog extends ConsumerStatefulWidget {
+  const _AddToPoolDialog({required this.l10n});
+
+  final AppLocalizations l10n;
+
+  @override
+  ConsumerState<_AddToPoolDialog> createState() => _AddToPoolDialogState();
+}
+
+class _AddToPoolDialogState extends ConsumerState<_AddToPoolDialog> {
+  final _amountCtrl = TextEditingController();
+  final _donorCtrl = TextEditingController();
+  final _reasonCtrl = TextEditingController();
+  var _saving = false;
+
+  @override
+  void dispose() {
+    _amountCtrl.dispose();
+    _donorCtrl.dispose();
+    _reasonCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final amount = double.tryParse(_amountCtrl.text.trim()) ?? 0;
+    final reason = _reasonCtrl.text.trim();
+    if (_saving || amount <= 0 || reason.isEmpty) return;
+
+    setState(() => _saving = true);
+    try {
+      await ref.read(treasuryServiceProvider).recordInflow(
+            amount: amount,
+            reason: reason,
+            donorName: _donorCtrl.text.trim().isEmpty
+                ? null
+                : _donorCtrl.text.trim(),
+          );
+      if (!mounted) return;
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = widget.l10n;
+    final amount = double.tryParse(_amountCtrl.text.trim()) ?? 0;
+    final invalidAmount = _amountCtrl.text.trim().isNotEmpty && amount <= 0;
+    final viewInsets = MediaQuery.viewInsetsOf(context);
+    final maxContentHeight =
+        MediaQuery.sizeOf(context).height - viewInsets.bottom - 220;
+
+    return AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      title: Text(l10n.t('add_to_pool')),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: maxContentHeight.clamp(180.0, 420.0),
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  l10n.t('add_to_pool_hint'),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.grey.shade700,
+                      ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _amountCtrl,
+                  enabled: !_saving,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
+                    labelText: l10n.t('amount'),
+                    prefixText: '\$ ',
+                    isDense: true,
+                    errorText: invalidAmount ? l10n.t('invalid_amount') : null,
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _donorCtrl,
+                  enabled: !_saving,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: InputDecoration(
+                    labelText: l10n.t('donor_name'),
+                    hintText: l10n.t('donor_name_hint'),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _reasonCtrl,
+                  enabled: !_saving,
+                  decoration: InputDecoration(
+                    labelText: l10n.t('reason'),
+                    hintText: l10n.t('donation_reason_hint'),
+                    isDense: true,
+                  ),
+                  textInputAction: TextInputAction.done,
+                  onChanged: (_) => setState(() {}),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.pop(context, false),
+          child: Text(l10n.t('cancel')),
+        ),
+        FilledButton(
+          onPressed: _saving || amount <= 0 || _reasonCtrl.text.trim().isEmpty
+              ? null
+              : _save,
+          child: _saving
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Text(l10n.t('save')),
+        ),
+      ],
+    );
+  }
+}
+
+class _DisburseAidDialog extends ConsumerStatefulWidget {
+  const _DisburseAidDialog({
+    required this.l10n,
+    required this.profiles,
+    required this.approver,
+    required this.balance,
+  });
+
+  final AppLocalizations l10n;
+  final List<Profile> profiles;
+  final Profile? approver;
+  final double balance;
+
+  @override
+  ConsumerState<_DisburseAidDialog> createState() => _DisburseAidDialogState();
+}
+
+class _DisburseAidDialogState extends ConsumerState<_DisburseAidDialog> {
+  final _amountCtrl = TextEditingController();
+  final _reasonCtrl = TextEditingController();
+
+  late final BranchFilterIndex _branchIndex;
+  late final Map<String, String> _lineageById;
+
+  String? _branchFilterId;
+  String? _subBranchFilterId;
+  String? _fatherFilterId;
+  String? _selectedId;
+  var _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _branchIndex = BranchFilterIndex.fromProfiles(widget.profiles);
+    final byId = {for (final p in widget.profiles) p.id: p};
+    _lineageById = {
+      for (final p in widget.profiles) p.id: buildFullMemberName(p, byId),
+    };
+  }
+
+  @override
+  void dispose() {
+    _amountCtrl.dispose();
+    _reasonCtrl.dispose();
+    super.dispose();
+  }
+
+  List<Profile> _beneficiaries() {
+    final scopeId = _fatherFilterId ?? _subBranchFilterId ?? _branchFilterId;
+    var candidates = _branchIndex.filterByBranch(
+      widget.profiles,
+      _subBranchFilterId ?? _branchFilterId,
+      profileId: (p) => p.id,
+    );
+    if (_fatherFilterId != null) {
+      candidates = _branchIndex.filterByAncestor(
+        candidates,
+        _fatherFilterId,
+        profileId: (p) => p.id,
+      );
+    }
+    final list = candidates.toList();
+    if (scopeId != null) {
+      _branchIndex.sortByGeneration(list, scopeId);
+    } else {
+      sortProfilesByAge(list);
+    }
+    return list;
+  }
+
+  Future<void> _save(Profile beneficiary, double amount) async {
+    final approver = widget.approver;
+    if (approver == null || _saving) return;
+
+    setState(() => _saving = true);
+    try {
+      await ref.read(treasuryServiceProvider).recordOutflow(
+            beneficiaryId: beneficiary.id,
+            amount: amount,
+            reason: _reasonCtrl.text.trim(),
+            approvedBy: approver.id,
+          );
+      if (!mounted) return;
+      Navigator.pop(context, true);
+    } on InsufficientPoolBalanceException catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            widget.l10n.t('insufficient_pool_balance').replaceAll(
+                  '{available}',
+                  e.available.toStringAsFixed(2),
+                ),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = widget.l10n;
+    final balance = widget.balance;
+    final amount = double.tryParse(_amountCtrl.text.trim()) ?? 0;
+    final exceedsBalance = amount > balance;
+    final invalidAmount = _amountCtrl.text.trim().isNotEmpty && amount <= 0;
+    final beneficiaries = _beneficiaries();
+    final selectedId = _selectedId != null &&
+            beneficiaries.any((p) => p.id == _selectedId)
+        ? _selectedId
+        : null;
+    final selected = selectedId == null
+        ? null
+        : beneficiaries.firstWhere((p) => p.id == selectedId);
+    final viewInsets = MediaQuery.viewInsetsOf(context);
+    final maxContentHeight =
+        MediaQuery.sizeOf(context).height - viewInsets.bottom - 220;
+
+    return AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      title: Text(l10n.t('disburse_aid')),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: maxContentHeight.clamp(220.0, 480.0),
+          ),
+          child: SingleChildScrollView(
+            child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -109,103 +485,145 @@ class TreasuryScreen extends ConsumerWidget {
                   l10n
                       .t('treasury_available_balance')
                       .replaceAll('{amount}', balance.toStringAsFixed(2)),
-                  style: Theme.of(ctx).textTheme.titleSmall?.copyWith(
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         color: balance <= 0 ? Colors.red.shade700 : null,
                         fontWeight: FontWeight.w600,
                       ),
                 ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<Profile>(
-                  decoration: InputDecoration(labelText: l10n.t('beneficiary')),
-                  initialValue: selected,
-                  items: profiles
-                      .map((p) => DropdownMenuItem(value: p, child: Text(p.fullName)))
+                if (_branchIndex.branches.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  BranchFatherFilters(
+                    index: _branchIndex,
+                    l10n: l10n,
+                    branchId: _branchFilterId,
+                    subBranchId: _subBranchFilterId,
+                    fatherFilterId: _fatherFilterId,
+                    lineageById: _lineageById,
+                    fatherOptions: _branchIndex.fathersWithChildren(
+                      branchId: _subBranchFilterId ?? _branchFilterId,
+                    ),
+                    onBranchChanged: (id) => setState(() {
+                      _branchFilterId = id;
+                      _subBranchFilterId = null;
+                      _fatherFilterId = null;
+                      _selectedId = null;
+                    }),
+                    onSubBranchChanged: (id) => setState(() {
+                      _subBranchFilterId = id;
+                      _fatherFilterId = null;
+                      _selectedId = null;
+                    }),
+                    onFatherChanged: (id) => setState(() {
+                      _fatherFilterId = id;
+                      _selectedId = null;
+                    }),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  // Recreate when filters change so the list resets cleanly.
+                  key: ValueKey(
+                    'beneficiary_${_branchFilterId}_'
+                    '${_subBranchFilterId}_$_fatherFilterId',
+                  ),
+                  initialValue: selectedId,
+                  isExpanded: true,
+                  menuMaxHeight: MediaQuery.sizeOf(context).height * 0.35,
+                  decoration: InputDecoration(
+                    labelText: l10n.t('beneficiary'),
+                    isDense: true,
+                  ),
+                  items: beneficiaries
+                      .map(
+                        (p) => DropdownMenuItem<String>(
+                          value: p.id,
+                          child: Text(
+                            _lineageById[p.id] ?? p.fullName,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
                       .toList(),
-                  onChanged: (v) => setState(() => selected = v),
+                  onChanged: _saving
+                      ? null
+                      : (id) => setState(() => _selectedId = id),
                 ),
+                const SizedBox(height: 8),
                 TextField(
-                  controller: amountCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  controller: _amountCtrl,
+                  enabled: !_saving,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
                   decoration: InputDecoration(
                     labelText: l10n.t('amount'),
                     prefixText: '\$ ',
+                    isDense: true,
+                    errorMaxLines: 3,
                     errorText: exceedsBalance
-                        ? l10n
-                            .t('insufficient_pool_balance')
-                            .replaceAll('{available}', balance.toStringAsFixed(2))
+                        ? l10n.t('insufficient_pool_balance').replaceAll(
+                              '{available}',
+                              balance.toStringAsFixed(2),
+                            )
                         : invalidAmount
                             ? l10n.t('invalid_amount')
                             : null,
                   ),
                   onChanged: (_) => setState(() {}),
                 ),
+                const SizedBox(height: 8),
                 TextField(
-                  controller: reasonCtrl,
-                  decoration: InputDecoration(labelText: l10n.t('reason')),
+                  controller: _reasonCtrl,
+                  enabled: !_saving,
+                  decoration: InputDecoration(
+                    labelText: l10n.t('reason'),
+                    isDense: true,
+                  ),
+                  textInputAction: TextInputAction.done,
                 ),
               ],
             ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-              FilledButton(
-                onPressed: selected == null ||
-                        approver == null ||
-                        amount <= 0 ||
-                        exceedsBalance ||
-                        reasonCtrl.text.trim().isEmpty
-                    ? null
-                    : () async {
-                        try {
-                          await ref.read(treasuryServiceProvider).recordOutflow(
-                                beneficiaryId: selected!.id,
-                                amount: amount,
-                                reason: reasonCtrl.text.trim(),
-                                approvedBy: approver.id,
-                              );
-                          ref.invalidate(poolBalanceProvider);
-                          ref.invalidate(auditLedgerProvider);
-                          if (ctx.mounted) Navigator.pop(ctx);
-                        } on InsufficientPoolBalanceException catch (e) {
-                          if (ctx.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  l10n
-                                      .t('insufficient_pool_balance')
-                                      .replaceAll(
-                                        '{available}',
-                                        e.available.toStringAsFixed(2),
-                                      ),
-                                ),
-                              ),
-                            );
-                          }
-                        } catch (e) {
-                          if (ctx.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(e.toString())),
-                            );
-                          }
-                        }
-                      },
-                child: Text(l10n.t('save')),
-              ),
-            ],
-          );
-        },
+          ),
+        ),
       ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.pop(context, false),
+          child: Text(l10n.t('cancel')),
+        ),
+        FilledButton(
+          onPressed: selected == null ||
+                  widget.approver == null ||
+                  amount <= 0 ||
+                  exceedsBalance ||
+                  _reasonCtrl.text.trim().isEmpty ||
+                  _saving
+              ? null
+              : () => _save(selected, amount),
+          child: _saving
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Text(l10n.t('save')),
+        ),
+      ],
     );
-
-    amountCtrl.dispose();
-    reasonCtrl.dispose();
   }
 }
 
 class _LedgerTile extends StatelessWidget {
-  const _LedgerTile({required this.entry, required this.l10n});
+  const _LedgerTile({
+    required this.entry,
+    required this.l10n,
+    this.canDelete = false,
+    this.onDelete,
+  });
 
   final LedgerEntry entry;
   final AppLocalizations l10n;
+  final bool canDelete;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -226,9 +644,20 @@ class _LedgerTile extends StatelessWidget {
               ? '${entry.description} (${l10n.t('verified_by')} ${entry.verifiedByName})'
               : entry.description,
         ),
-        trailing: Text(
-          '\$${entry.amount.toStringAsFixed(2)}',
-          style: TextStyle(fontWeight: FontWeight.bold, color: color),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '\$${entry.amount.toStringAsFixed(2)}',
+              style: TextStyle(fontWeight: FontWeight.bold, color: color),
+            ),
+            if (canDelete && onDelete != null)
+              IconButton(
+                tooltip: l10n.t('delete'),
+                icon: Icon(Icons.delete_outline, color: Colors.red.shade700),
+                onPressed: onDelete,
+              ),
+          ],
         ),
       ),
     );

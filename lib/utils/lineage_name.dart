@@ -15,15 +15,15 @@ class LineageDisplayInfo {
   final String? subtitleText;
 }
 
-/// When a daughter's child is linked to their mother via [father_id] for the tree.
+/// When a Sheekh Yonis daughter's child is linked via [father_id] for the tree.
 Profile? treeMotherLink(Profile profile, Map<String, Profile> byId) {
   final parentId = profile.fatherId;
   if (parentId == null) return null;
   final parent = byId[parentId];
   if (parent == null) return null;
-  final patriarch = findPatriarchProfile(byId.values);
-  if (patriarch == null) return null;
-  if (!isPatriarchDaughter(parent, patriarch.id)) return null;
+  final sheekh = findSheekhYonisProfile(byId.values);
+  if (sheekh == null) return null;
+  if (!isPatriarchDaughter(parent, sheekh.id)) return null;
   return parent;
 }
 
@@ -117,7 +117,7 @@ int? generationsBelowPatriarch(
 }
 
 /// Fathers when adding a member: exclude the youngest generation (no families yet).
-/// Allows patriarch's sons through great-grandsons (depth 1–3).
+/// Allows through Sheekh Yonis great-grandsons (relative depth < sheekhDepth + 4).
 bool canSelectAsFatherForNewMember(
   Profile profile,
   Map<String, Profile> byId,
@@ -126,5 +126,9 @@ bool canSelectAsFatherForNewMember(
   if (patriarchId == null) return false;
   final depth = generationsBelowPatriarch(profile, byId, patriarchId);
   if (depth == null) return false;
-  return depth < 4;
+  final sheekh = findSheekhYonisProfile(byId.values);
+  final sheekhDepth = sheekh == null
+      ? 0
+      : generationsBelowPatriarch(sheekh, byId, patriarchId) ?? 0;
+  return depth < sheekhDepth + 4;
 }

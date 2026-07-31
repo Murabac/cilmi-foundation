@@ -9,6 +9,7 @@ import '../models/models.dart';
 import '../models/payment_report.dart';
 import '../theme/app_theme.dart';
 import '../utils/lineage_name.dart';
+import '../utils/patriarch_resolver.dart';
 import '../utils/payment_exempt.dart';
 import '../utils/profile_sort.dart';
 import '../utils/phone_utils.dart';
@@ -116,7 +117,8 @@ class ProfileService {
   bool needsLineageSetup(Profile? profile) {
     if (profile == null) return true;
     if (profile.fatherId != null) return false;
-    return !profile.fullName.toUpperCase().contains('SHEEKH YONIS');
+    return !isPatriarchName(profile.fullName) &&
+        !isSheekhYonisName(profile.fullName);
   }
 
   Future<List<Profile>> getUnclaimedProfiles() async {
@@ -343,11 +345,21 @@ class ProfileService {
         .from('profiles')
         .select()
         .filter('father_id', 'is', null)
-        .ilike('full_name', '%SHEEKH YONIS%')
+        .ilike('full_name', 'CILMI')
         .order('full_name')
         .limit(1);
     final list = rows as List;
     if (list.isNotEmpty) return Profile.fromJson(list.first);
+
+    final sheekhRows = await _db(_client)
+        .from('profiles')
+        .select()
+        .filter('father_id', 'is', null)
+        .ilike('full_name', '%SHEEKH YONIS%')
+        .order('full_name')
+        .limit(1);
+    final sheekhList = sheekhRows as List;
+    if (sheekhList.isNotEmpty) return Profile.fromJson(sheekhList.first);
 
     final fallback = await _db(_client)
         .from('profiles')
@@ -672,7 +684,7 @@ class ContributionService {
 
   Future<void> logPayment({
     required String userId,
-    required String reference,
+    String? reference,
     String? receiptUrl,
     double? amountDue,
   }) async {
@@ -687,13 +699,16 @@ class ContributionService {
 
     final settings = await SettingsService(_client).getSettings();
     final due = amountDue ?? settings.currentAdultRate;
+    final refCode = (reference == null || reference.trim().isEmpty)
+        ? 'submitted'
+        : reference.trim();
 
     final now = DateTime.now();
     final existing = await getCurrentMonthContribution(userId);
 
     if (existing != null) {
       await _db(_client).from('contributions').update({
-        'transaction_reference': reference,
+        'transaction_reference': refCode,
         'receipt_url': receiptUrl,
         'amount_paid': due,
         'amount_due': due,
@@ -706,11 +721,19 @@ class ContributionService {
         'billing_year': now.year,
         'amount_due': due,
         'amount_paid': due,
-        'transaction_reference': reference,
+        'transaction_reference': refCode,
         'receipt_url': receiptUrl,
         'status': 'pending',
       });
     }
+  }
+
+  /// Member taps after paying — notifies admins without proof upload.
+  Future<void> submitForVerification({
+    required String userId,
+    double? amountDue,
+  }) {
+    return logPayment(userId: userId, amountDue: amountDue);
   }
 
   Future<void> verifyContribution({
@@ -806,6 +829,11 @@ class ContributionService {
       'verified_by': null,
       'verified_at': null,
     }).eq('id', existing.id);
+  }
+
+  /// Permanently removes a contribution row (super_admin only via RLS).
+  Future<void> deleteContribution(String contributionId) async {
+    await _db(_client).from('contributions').delete().eq('id', contributionId);
   }
 
   Future<String?> uploadReceipt(String userId, Uint8List bytes, String ext) async {
@@ -905,40 +933,31 @@ class TreasuryService {
   final SupabaseClient _client;
 
   Future<double> getPoolBalance() async {
-    final inflows = await _db(_client)
-        .from('contributions')
-        .select('amount_paid')
-        .eq('status', 'approved');
-
-    final outflows =
-        await _db(_client).from('treasury_outflows').select('amount');
-
-    double totalIn = 0;
-    for (final row in inflows as List) {
-      totalIn += (row['amount_paid'] as num?)?.toDouble() ?? 0;
-    }
-
-    double totalOut = 0;
-    for (final row in outflows as List) {
-      totalOut += (row['amount'] as num).toDouble();
-    }
-
-    return totalIn - totalOut;
+    final result = await _db(_client).rpc('get_pool_balance');
+    if (result is num) return result.toDouble();
+    return 0;
   }
 
   Future<List<LedgerEntry>> getAuditLedger() async {
     final contributions = await _db(_client)
         .from('contributions')
         .select(
-          'amount_paid, verified_at, created_at, profiles!contributions_user_id_fkey(full_name), verifier:profiles!contributions_verified_by_fkey(full_name)',
+          'id, amount_paid, verified_at, created_at, profiles!contributions_user_id_fkey(full_name), verifier:profiles!contributions_verified_by_fkey(full_name)',
         )
         .eq('status', 'approved')
         .order('verified_at', ascending: false);
 
+    final donations = await _db(_client)
+        .from('treasury_inflows')
+        .select(
+          'id, amount, reason, donor_name, created_at, donor:profiles!treasury_inflows_donor_profile_id_fkey(full_name), recorder:profiles!treasury_inflows_recorded_by_fkey(full_name)',
+        )
+        .order('created_at', ascending: false);
+
     final outflows = await _db(_client)
         .from('treasury_outflows')
         .select(
-          'amount, reason, created_at, beneficiary:profiles!treasury_outflows_beneficiary_id_fkey(full_name)',
+          'id, amount, reason, created_at, beneficiary:profiles!treasury_outflows_beneficiary_id_fkey(full_name)',
         )
         .order('created_at', ascending: false);
 
@@ -948,6 +967,8 @@ class TreasuryService {
       final member = c['profiles'] as Map<String, dynamic>?;
       final verifier = c['verifier'] as Map<String, dynamic>?;
       entries.add(LedgerEntry(
+        id: c['id'] as String?,
+        source: LedgerSource.contribution,
         date: DateTime.parse(
           (c['verified_at'] ?? c['created_at']) as String,
         ),
@@ -958,9 +979,31 @@ class TreasuryService {
       ));
     }
 
+    for (final d in donations as List) {
+      final donorProfile = d['donor'] as Map<String, dynamic>?;
+      final recorder = d['recorder'] as Map<String, dynamic>?;
+      final donorName = (d['donor_name'] as String?)?.trim();
+      final profileName = donorProfile?['full_name'] as String?;
+      final who = (donorName != null && donorName.isNotEmpty)
+          ? donorName
+          : (profileName ?? 'Donor');
+      final reason = d['reason'] as String? ?? '';
+      entries.add(LedgerEntry(
+        id: d['id'] as String?,
+        source: LedgerSource.treasuryInflow,
+        date: DateTime.parse(d['created_at'] as String),
+        isInflow: true,
+        amount: (d['amount'] as num).toDouble(),
+        description: '$who — $reason',
+        verifiedByName: recorder?['full_name'] as String?,
+      ));
+    }
+
     for (final o in outflows as List) {
       final beneficiary = o['beneficiary'] as Map<String, dynamic>?;
       entries.add(LedgerEntry(
+        id: o['id'] as String?,
+        source: LedgerSource.treasuryOutflow,
         date: DateTime.parse(o['created_at'] as String),
         isInflow: false,
         amount: (o['amount'] as num).toDouble(),
@@ -971,6 +1014,50 @@ class TreasuryService {
 
     entries.sort((a, b) => b.date.compareTo(a.date));
     return entries;
+  }
+
+  Future<void> deleteLedgerEntry(LedgerEntry entry) async {
+    final id = entry.id;
+    final source = entry.source;
+    if (id == null || source == null) {
+      throw TreasuryException('cannot_delete');
+    }
+
+    switch (source) {
+      case LedgerSource.contribution:
+        await _db(_client).from('contributions').delete().eq('id', id);
+      case LedgerSource.treasuryInflow:
+        await _db(_client).from('treasury_inflows').delete().eq('id', id);
+      case LedgerSource.treasuryOutflow:
+        await _db(_client).from('treasury_outflows').delete().eq('id', id);
+    }
+  }
+
+  Future<void> recordInflow({
+    required double amount,
+    required String reason,
+    String? donorName,
+    String? donorProfileId,
+  }) async {
+    if (amount <= 0) {
+      throw TreasuryException('invalid_amount');
+    }
+    final trimmedReason = reason.trim();
+    if (trimmedReason.isEmpty) {
+      throw TreasuryException('reason_required');
+    }
+
+    await _db(_client).rpc(
+      'record_treasury_inflow',
+      params: {
+        'p_amount': amount,
+        'p_reason': trimmedReason,
+        'p_donor_name': donorName?.trim().isEmpty == true
+            ? null
+            : donorName?.trim(),
+        'p_donor_profile_id': donorProfileId,
+      },
+    );
   }
 
   Future<void> recordOutflow({
@@ -1039,6 +1126,10 @@ class AdminService {
         .delete()
         .gte('billing_year', 1970);
     await _db(_client)
+        .from('treasury_inflows')
+        .delete()
+        .gte('created_at', '1970-01-01T00:00:00Z');
+    await _db(_client)
         .from('treasury_outflows')
         .delete()
         .gte('created_at', '1970-01-01T00:00:00Z');
@@ -1047,7 +1138,8 @@ class AdminService {
     final patriarch = await _db(_client)
         .from('profiles')
         .select('id')
-        .ilike('full_name', 'SHEEKH YONIS')
+        .ilike('full_name', 'CILMI')
+        .filter('father_id', 'is', null)
         .maybeSingle();
     if (patriarch != null) {
       await _db(_client)
@@ -1066,6 +1158,14 @@ class AdminService {
   Future<void> releaseProfileClaim(String profileId) async {
     await _db(_client).rpc(
       'release_profile_claim',
+      params: {'p_profile_id': profileId},
+    );
+  }
+
+  /// Permanently removes a family member profile (super_admin only).
+  Future<void> deleteFamilyMember(String profileId) async {
+    await _db(_client).rpc(
+      'delete_family_member',
       params: {'p_profile_id': profileId},
     );
   }

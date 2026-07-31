@@ -6,6 +6,7 @@ import '../models/models.dart';
 import '../theme/app_theme.dart';
 import '../theme/member_status_theme.dart';
 import '../utils/patriarch_resolver.dart';
+import '../utils/tree_list_display.dart';
 import 'widgets.dart';
 
 Color _statusAccent(Profile profile) =>
@@ -54,12 +55,14 @@ class FamilyTreeListView extends StatefulWidget {
     required this.l10n,
     required this.onMemberTap,
     this.branchFilterId,
+    this.subBranchFilterId,
   });
 
   final TreeNode root;
   final AppLocalizations l10n;
   final ValueChanged<Profile> onMemberTap;
   final String? branchFilterId;
+  final String? subBranchFilterId;
 
   @override
   State<FamilyTreeListView> createState() => _FamilyTreeListViewState();
@@ -67,7 +70,7 @@ class FamilyTreeListView extends StatefulWidget {
 
 class _FamilyTreeListViewState extends State<FamilyTreeListView> {
   final _searchCtrl = TextEditingController();
-  final _expandedSonIds = <String>{};
+  final _expandedIds = <String>{};
   String _searchQuery = '';
 
   @override
@@ -77,25 +80,51 @@ class _FamilyTreeListViewState extends State<FamilyTreeListView> {
   }
 
   List<TreeNode> get _sonBranches {
-    final split = splitPatriarchChildren(widget.root);
-    final sons = widget.branchFilterId == null
-        ? split.sons
-        : split.sons
+    var sons = widget.branchFilterId == null
+        ? foundationBranchNodes(widget.root)
+        : foundationBranchNodes(widget.root)
             .where((son) => son.profile.id == widget.branchFilterId)
             .toList();
+
+    final subId = widget.subBranchFilterId;
+    if (subId != null) {
+      final narrowed = <TreeNode>[];
+      for (final branch in sons) {
+        final match = findNodeInTree(branch, subId);
+        if (match != null) narrowed.add(match);
+      }
+      sons = narrowed;
+    }
+
     return filterSonBranches(sons, _searchQuery);
   }
 
   List<TreeNode> get _daughterBranches {
     if (widget.branchFilterId != null) return const [];
-    final split = splitPatriarchChildren(widget.root);
+    final split = splitFoundationBranches(widget.root);
     return filterSonBranches(split.daughters, _searchQuery);
   }
 
   Iterable<TreeNode> get _allBranchesForSearch sync* {
-    final split = splitPatriarchChildren(widget.root);
-    yield* split.sons;
+    final split = splitFoundationBranches(widget.root);
+    yield* foundationBranchNodes(widget.root);
     yield* split.daughters;
+  }
+
+  /// Expand every ancestor of a name match so deep descendants are visible.
+  void _expandAncestorsOfMatches(TreeNode node, String query, Set<String> out) {
+    bool walk(TreeNode n) {
+      var matched = profileNameMatchesSearch(n.profile, query);
+      for (final child in n.children) {
+        if (walk(child)) {
+          out.add(n.profile.id);
+          matched = true;
+        }
+      }
+      return matched;
+    }
+
+    walk(node);
   }
 
   void _onSearchChanged(String value) {
@@ -104,7 +133,8 @@ class _FamilyTreeListViewState extends State<FamilyTreeListView> {
       if (value.trim().isEmpty) return;
       for (final branch in _allBranchesForSearch) {
         if (treeNodeMatchesSearch(branch, value)) {
-          _expandedSonIds.add(branch.profile.id);
+          _expandedIds.add(branch.profile.id);
+          _expandAncestorsOfMatches(branch, value, _expandedIds);
         }
       }
     });
@@ -115,12 +145,12 @@ class _FamilyTreeListViewState extends State<FamilyTreeListView> {
     setState(() => _searchQuery = '');
   }
 
-  void _toggleSon(String id) {
+  void _toggleExpanded(String id) {
     setState(() {
-      if (_expandedSonIds.contains(id)) {
-        _expandedSonIds.remove(id);
+      if (_expandedIds.contains(id)) {
+        _expandedIds.remove(id);
       } else {
-        _expandedSonIds.add(id);
+        _expandedIds.add(id);
       }
     });
   }
@@ -201,8 +231,10 @@ class _FamilyTreeListViewState extends State<FamilyTreeListView> {
               l10n: l10n,
               branchLabel: l10n.t('son_branch'),
               searchQuery: _searchQuery,
-              expanded: _expandedSonIds.contains(branch.profile.id),
-              onToggle: () => _toggleSon(branch.profile.id),
+              expanded: _expandedIds.contains(branch.profile.id),
+              expandedIds: _expandedIds,
+              onToggle: () => _toggleExpanded(branch.profile.id),
+              onToggleDescendant: _toggleExpanded,
               onMemberTap: widget.onMemberTap,
             ),
           ),
@@ -222,8 +254,10 @@ class _FamilyTreeListViewState extends State<FamilyTreeListView> {
                 l10n: l10n,
                 branchLabel: l10n.t('daughter_branch'),
                 searchQuery: _searchQuery,
-                expanded: _expandedSonIds.contains(branch.profile.id),
-                onToggle: () => _toggleSon(branch.profile.id),
+                expanded: _expandedIds.contains(branch.profile.id),
+                expandedIds: _expandedIds,
+                onToggle: () => _toggleExpanded(branch.profile.id),
+                onToggleDescendant: _toggleExpanded,
                 onMemberTap: widget.onMemberTap,
               ),
             ),
@@ -285,7 +319,9 @@ class _SonBranch extends StatelessWidget {
     required this.branchLabel,
     required this.searchQuery,
     required this.expanded,
+    required this.expandedIds,
     required this.onToggle,
+    required this.onToggleDescendant,
     required this.onMemberTap,
   });
 
@@ -294,7 +330,9 @@ class _SonBranch extends StatelessWidget {
   final String branchLabel;
   final String searchQuery;
   final bool expanded;
+  final Set<String> expandedIds;
   final VoidCallback onToggle;
+  final ValueChanged<String> onToggleDescendant;
   final ValueChanged<Profile> onMemberTap;
 
   @override
@@ -383,19 +421,22 @@ class _SonBranch extends StatelessWidget {
               curve: Curves.easeInOut,
               alignment: Alignment.topCenter,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                padding: const EdgeInsets.fromLTRB(14, 4, 14, 16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const Divider(height: 1),
-                    const SizedBox(height: 12),
-                    ...node.children.map(
-                      (child) => _ChildBranch(
-                        node: child,
-                        l10n: l10n,
-                        highlightQuery: searchQuery,
-                        onMemberTap: onMemberTap,
-                      ),
+                    const SizedBox(height: 16),
+                    ..._descendantChildren(
+                      context: context,
+                      children: node.children,
+                      parent: node.profile,
+                      l10n: l10n,
+                      searchQuery: searchQuery,
+                      depth: 0,
+                      expandedIds: expandedIds,
+                      onToggle: onToggleDescendant,
+                      onMemberTap: onMemberTap,
                     ),
                   ],
                 ),
@@ -407,117 +448,247 @@ class _SonBranch extends StatelessWidget {
   }
 }
 
-class _ChildBranch extends StatelessWidget {
-  const _ChildBranch({
+List<Widget> _descendantChildren({
+  required BuildContext context,
+  required List<TreeNode> children,
+  required Profile parent,
+  required AppLocalizations l10n,
+  required String searchQuery,
+  required int depth,
+  required Set<String> expandedIds,
+  required ValueChanged<String> onToggle,
+  required ValueChanged<Profile> onMemberTap,
+}) {
+  final widgets = <Widget>[];
+  var leafBatch = <TreeNode>[];
+
+  void flushLeaves() {
+    if (leafBatch.isEmpty) return;
+    widgets.add(
+      Padding(
+        padding: EdgeInsets.fromLTRB(depth == 0 ? 4 : 8, 8, 4, 12),
+        child: Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            for (final leaf in leafBatch)
+              _LeafChip(
+                node: leaf,
+                l10n: l10n,
+                highlighted: profileNameMatchesSearch(
+                  leaf.profile,
+                  searchQuery,
+                ),
+                onTap: () => onMemberTap(leaf.profile),
+              ),
+          ],
+        ),
+      ),
+    );
+    leafBatch = [];
+  }
+
+  for (final child in children) {
+    if (showsAsLeafChip(child, depth, parent: parent)) {
+      leafBatch.add(child);
+    } else {
+      flushLeaves();
+      widgets.add(
+        _ExpandableDescendant(
+          node: child,
+          l10n: l10n,
+          searchQuery: searchQuery,
+          depth: depth,
+          expandedIds: expandedIds,
+          onToggle: onToggle,
+          onMemberTap: onMemberTap,
+        ),
+      );
+    }
+  }
+  flushLeaves();
+  return widgets;
+}
+
+/// Recursive list row: parents stay expandable; leaf kids render as chips.
+class _ExpandableDescendant extends StatelessWidget {
+  const _ExpandableDescendant({
     required this.node,
     required this.l10n,
-    required this.highlightQuery,
+    required this.searchQuery,
+    required this.depth,
+    required this.expandedIds,
+    required this.onToggle,
     required this.onMemberTap,
   });
 
   final TreeNode node;
   final AppLocalizations l10n;
-  final String highlightQuery;
+  final String searchQuery;
+  final int depth;
+  final Set<String> expandedIds;
+  final ValueChanged<String> onToggle;
   final ValueChanged<Profile> onMemberTap;
 
   @override
   Widget build(BuildContext context) {
-    final hasGrandchildren = node.children.isNotEmpty;
-    final nameMatches = profileNameMatchesSearch(node.profile, highlightQuery);
+    final hasChildren = node.children.isNotEmpty;
+    final expanded = expandedIds.contains(node.profile.id);
+    final nameMatches = profileNameMatchesSearch(node.profile, searchQuery);
+    final childCount = node.children.length;
+    final chipKids = hasChildren &&
+        node.children.every(
+          (c) => showsAsLeafChip(c, depth + 1, parent: node.profile),
+        );
+    final scheme = Theme.of(context).colorScheme;
+    final nestFill = scheme.surfaceContainerHighest.withValues(
+      alpha: depth == 0 ? 0.35 : 0.55,
+    );
 
     return Padding(
-      padding: const EdgeInsets.only(left: 8, bottom: 12),
+      padding: EdgeInsets.only(
+        left: depth == 0 ? 0 : 12.0,
+        bottom: 10,
+      ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(top: 10),
-                child: Icon(Icons.subdirectory_arrow_right,
-                    size: 18, color: Colors.grey.shade500),
-              ),
-              const SizedBox(width: 4),
-              Expanded(
-                child: InkWell(
-                  onTap: () => onMemberTap(node.profile),
-                  borderRadius: BorderRadius.circular(8),
-                  child: Container(
-                    padding: nameMatches && highlightQuery.isNotEmpty
-                        ? const EdgeInsets.symmetric(horizontal: 8, vertical: 4)
-                        : const EdgeInsets.symmetric(vertical: 4),
-                    decoration: nameMatches && highlightQuery.isNotEmpty
-                        ? BoxDecoration(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .primaryContainer
-                                .withValues(alpha: 0.5),
-                            borderRadius: BorderRadius.circular(8),
-                          )
-                        : null,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          node.profile.fullName,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        const SizedBox(height: 4),
-                        _CareAndStatusDots(
-                          profile: node.profile,
-                          l10n: l10n,
-                        ),
-                      ],
+          Material(
+            color: nameMatches && searchQuery.isNotEmpty
+                ? scheme.primaryContainer.withValues(alpha: 0.55)
+                : nestFill,
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
+              onTap: () => onMemberTap(node.profile),
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border(
+                    left: BorderSide(
+                      color: _statusAccent(node.profile),
+                      width: 4,
                     ),
                   ),
                 ),
+                padding: const EdgeInsets.fromLTRB(4, 10, 10, 10),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    if (hasChildren)
+                      IconButton(
+                        onPressed: () => onToggle(node.profile.id),
+                        icon: Icon(
+                          expanded
+                              ? Icons.expand_less
+                              : Icons.expand_more,
+                          color: scheme.primary,
+                        ),
+                      )
+                    else
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Icon(
+                          Icons.subdirectory_arrow_right,
+                          size: 20,
+                          color: Colors.grey.shade500,
+                        ),
+                      ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            node.profile.fullName,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: depth == 0 ? 16 : 15,
+                              height: 1.25,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          _CareAndStatusDots(
+                            profile: node.profile,
+                            l10n: l10n,
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (hasChildren)
+                      Container(
+                        margin: const EdgeInsets.only(left: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: scheme.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          '$childCount',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                            color: scheme.primary,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            ],
+            ),
           ),
-          if (hasGrandchildren) ...[
-            const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.only(left: 28),
+          if (expanded && hasChildren)
+            Container(
+              margin: const EdgeInsets.only(top: 8, left: 8),
+              padding: const EdgeInsets.fromLTRB(12, 12, 8, 8),
+              decoration: BoxDecoration(
+                color: scheme.surface.withValues(alpha: 0.65),
+                borderRadius: BorderRadius.circular(12),
+                border: Border(
+                  left: BorderSide(
+                    color: scheme.outlineVariant,
+                    width: 2,
+                  ),
+                ),
+              ),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
-                    l10n.t('grandchildren'),
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: Colors.grey.shade600,
+                    chipKids
+                        ? l10n.t('grandchildren')
+                        : l10n.t('children'),
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          color: Colors.grey.shade700,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.2,
                         ),
                   ),
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: node.children
-                        .map(
-                          (grandchild) => _GrandchildChip(
-                            node: grandchild,
-                            l10n: l10n,
-                            highlighted: profileNameMatchesSearch(
-                              grandchild.profile,
-                              highlightQuery,
-                            ),
-                            onTap: () => onMemberTap(grandchild.profile),
-                          ),
-                        )
-                        .toList(),
+                  const SizedBox(height: 10),
+                  ..._descendantChildren(
+                    context: context,
+                    children: node.children,
+                    parent: node.profile,
+                    l10n: l10n,
+                    searchQuery: searchQuery,
+                    depth: depth + 1,
+                    expandedIds: expandedIds,
+                    onToggle: onToggle,
+                    onMemberTap: onMemberTap,
                   ),
                 ],
               ),
             ),
-          ],
         ],
       ),
     );
   }
 }
 
-class _GrandchildChip extends StatelessWidget {
-  const _GrandchildChip({
+class _LeafChip extends StatelessWidget {
+  const _LeafChip({
     required this.node,
     required this.l10n,
     this.highlighted = false,
@@ -536,42 +707,47 @@ class _GrandchildChip extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(22),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         decoration: BoxDecoration(
           color: highlighted
               ? Theme.of(context).colorScheme.primaryContainer
-              : careColor.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(20),
+              : careColor.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(22),
           border: Border.all(
             color: highlighted
                 ? Theme.of(context).colorScheme.primary
-                : careColor.withValues(alpha: 0.45),
-            width: highlighted ? 2 : 1,
+                : careColor.withValues(alpha: 0.5),
+            width: highlighted ? 2 : 1.2,
           ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 3,
-              height: 16,
-              margin: const EdgeInsets.only(right: 6),
+              width: 4,
+              height: 18,
+              margin: const EdgeInsets.only(right: 8),
               decoration: BoxDecoration(
                 color: statusColor,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
             Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(color: careColor, shape: BoxShape.circle),
+              width: 9,
+              height: 9,
+              decoration:
+                  BoxDecoration(color: careColor, shape: BoxShape.circle),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 8),
             Text(
               node.profile.fullName,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                height: 1.2,
+              ),
             ),
           ],
         ),

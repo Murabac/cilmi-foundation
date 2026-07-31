@@ -102,20 +102,20 @@ final carePriorityProvider = FutureProvider<List<Profile>>((ref) async {
 
 final poolBalanceProvider = FutureProvider<double>((ref) async {
   final profile = await ref.watch(currentProfileProvider.future);
-  if (profile == null || !profile.role.isAdminOrManager) return 0;
+  if (profile == null) return 0;
   return ref.watch(treasuryServiceProvider).getPoolBalance();
 });
 
 final urgentCountProvider = FutureProvider<int>((ref) async {
   final profile = await ref.watch(currentProfileProvider.future);
-  if (profile == null || !profile.role.isAdminOrManager) return 0;
+  if (profile == null || !profile.role.canManageCare) return 0;
   return ref.watch(profileServiceProvider).countUrgentProfiles();
 });
 
 final pendingContributionsProvider =
     FutureProvider<List<Contribution>>((ref) async {
   final profile = await ref.watch(currentProfileProvider.future);
-  if (profile == null || !profile.role.isAdminOrManager) return [];
+  if (profile == null || !profile.role.canManagePayments) return [];
   return ref.watch(contributionServiceProvider).getPendingContributions();
 });
 
@@ -130,10 +130,14 @@ final selectedBillingPeriodProvider = StateProvider<BillingPeriod>((ref) {
   return BillingPeriod(month: now.month, year: now.year);
 });
 
+/// Status chip on the payment report (All / Paid / Unpaid / …).
+final selectedPaymentReportFilterProvider =
+    StateProvider<PaymentReportFilter>((ref) => PaymentReportFilter.all);
+
 final monthlyPaymentReportProvider =
     FutureProvider<MonthlyPaymentReport>((ref) async {
   final profile = await ref.watch(currentProfileProvider.future);
-  if (profile == null || !profile.role.isAdminOrManager) {
+  if (profile == null || !profile.role.canManagePayments) {
     throw Exception('Unauthorized');
   }
   final period = ref.watch(selectedBillingPeriodProvider);
@@ -155,7 +159,7 @@ final myContributionsProvider = FutureProvider<List<Contribution>>((ref) async {
 
 final auditLedgerProvider = FutureProvider<List<LedgerEntry>>((ref) async {
   final profile = await ref.watch(currentProfileProvider.future);
-  if (profile == null || !profile.role.isAdminOrManager) return [];
+  if (profile == null || !profile.role.canManageTreasury) return [];
   return ref.watch(treasuryServiceProvider).getAuditLedger();
 });
 

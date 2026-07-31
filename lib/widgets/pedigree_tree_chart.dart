@@ -102,8 +102,11 @@ List<double> _sonNameCellCenterXs(List<double> columnWidths) {
   return centers;
 }
 
+const _foundationBranchGap = 36.0;
+const _singleTrunkHeight = 28.0;
+
 /// Report-style pedigree: root at top, sons in columns, side branches to the right.
-class PedigreeTreeChart extends StatelessWidget {
+class PedigreeTreeChart extends StatefulWidget {
   const PedigreeTreeChart({
     super.key,
     required this.root,
@@ -112,6 +115,45 @@ class PedigreeTreeChart extends StatelessWidget {
 
   final TreeNode root;
   final ValueChanged<Profile> onMemberTap;
+
+  @override
+  State<PedigreeTreeChart> createState() => _PedigreeTreeChartState();
+}
+
+class _PedigreeTreeChartState extends State<PedigreeTreeChart> {
+  final _scrollController = ScrollController();
+  final _contentKey = GlobalKey();
+  double? _lastViewportWidth;
+  String? _lastRootId;
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _scheduleCenter(double viewportWidth) {
+    final rootId = widget.root.profile.id;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      if (_lastViewportWidth == viewportWidth && _lastRootId == rootId) {
+        return;
+      }
+      _lastViewportWidth = viewportWidth;
+      _lastRootId = rootId;
+
+      final contentContext = _contentKey.currentContext;
+      final contentWidth = contentContext?.size?.width;
+      if (contentWidth == null) return;
+
+      final maxScroll = _scrollController.position.maxScrollExtent;
+      if (maxScroll <= 0) return;
+
+      final target = ((contentWidth - viewportWidth) / 2).clamp(0.0, maxScroll);
+      if ((_scrollController.offset - target).abs() < 1) return;
+      _scrollController.jumpTo(target);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -123,15 +165,23 @@ class PedigreeTreeChart extends StatelessWidget {
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
+          final viewportWidth = constraints.maxWidth;
+          _scheduleCenter(viewportWidth);
+
           return SingleChildScrollView(
+            controller: _scrollController,
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
             child: ConstrainedBox(
-              constraints: BoxConstraints(minWidth: constraints.maxWidth - 32),
-              child: _PedigreeSubtree(
-                node: root,
-                onMemberTap: onMemberTap,
-                isRoot: true,
+              key: _contentKey,
+              constraints: BoxConstraints(minWidth: viewportWidth - 32),
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: _PedigreeSubtree(
+                  node: widget.root,
+                  onMemberTap: widget.onMemberTap,
+                  isRoot: true,
+                ),
               ),
             ),
           );
@@ -163,7 +213,22 @@ class _PedigreeSubtree extends StatelessWidget {
     }
 
     if (isRoot) {
-      final split = splitPatriarchChildren(node);
+      final split = splitFoundationBranches(node);
+      final hasIntermediate = split.sons.length == 1 &&
+          split.sons.first.children.isNotEmpty &&
+          !isSheekhYonisName(split.sons.first.profile.fullName);
+
+      if (hasIntermediate) {
+        final intermediate = split.sons.first;
+        return _FoundationAncestryChart(
+          patriarch: node.profile,
+          intermediate: intermediate.profile,
+          branches: intermediate.children,
+          daughters: split.daughters,
+          onMemberTap: onMemberTap,
+        );
+      }
+
       return Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         mainAxisSize: MainAxisSize.min,
@@ -189,6 +254,128 @@ class _PedigreeSubtree extends StatelessWidget {
       sons: node.children,
       onMemberTap: onMemberTap,
       emphasized: false,
+    );
+  }
+}
+
+/// Cilmi alone → Ahmed alone → Sheekh Yonis | Aadan as peer columns.
+class _FoundationAncestryChart extends StatelessWidget {
+  const _FoundationAncestryChart({
+    required this.patriarch,
+    required this.intermediate,
+    required this.branches,
+    required this.daughters,
+    required this.onMemberTap,
+  });
+
+  final Profile patriarch;
+  final Profile intermediate;
+  final List<TreeNode> branches;
+  final List<TreeNode> daughters;
+  final ValueChanged<Profile> onMemberTap;
+
+  static double _branchRowWidth(List<TreeNode> children) {
+    if (children.isEmpty) return _spineWidth + _columnWidth;
+    var width = 0.0;
+    for (var i = 0; i < children.length; i++) {
+      if (i > 0) width += _foundationBranchGap;
+      width += _pedigreeColumnWidth(children[i]);
+    }
+    return width;
+  }
+
+  static List<double> _branchNameCellCenterXs(List<double> columnWidths) {
+    final centers = <double>[];
+    var x = 0.0;
+    for (var i = 0; i < columnWidths.length; i++) {
+      if (i > 0) x += _foundationBranchGap;
+      centers.add(x + _spineWidth + _columnWidth / 2);
+      x += columnWidths[i];
+    }
+    return centers;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final columnWidths =
+        branches.map(_pedigreeColumnWidth).toList(growable: false);
+    final rowWidth = _branchRowWidth(branches);
+    final sonCenterXs = _branchNameCellCenterXs(columnWidths);
+    final centerX = rowWidth / 2;
+
+    final ancestry = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: rowWidth,
+          child: Center(
+            child: _NameCell(
+              profile: patriarch,
+              onTap: () => onMemberTap(patriarch),
+              emphasized: true,
+            ),
+          ),
+        ),
+        SizedBox(
+          width: rowWidth,
+          height: _singleTrunkHeight,
+          child: CustomPaint(
+            painter: _SingleTrunkPainter(centerX: centerX),
+          ),
+        ),
+        SizedBox(
+          width: rowWidth,
+          child: Center(
+            child: _NameCell(
+              profile: intermediate,
+              onTap: () => onMemberTap(intermediate),
+              emphasized: true,
+            ),
+          ),
+        ),
+        SizedBox(
+          width: rowWidth,
+          height: _patriarchConnectorHeight,
+          child: CustomPaint(
+            painter: _PatriarchToSonsPainter(
+              patriarchCenterX: centerX,
+              sonCenterXs: sonCenterXs,
+            ),
+          ),
+        ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < branches.length; i++) ...[
+              if (i > 0) const SizedBox(width: _foundationBranchGap),
+              SizedBox(
+                width: columnWidths[i],
+                child: _PedigreeColumn(
+                  node: branches[i],
+                  onMemberTap: onMemberTap,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+
+    if (daughters.isEmpty) return ancestry;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ancestry,
+        SizedBox(width: _foundationBranchGap),
+        _PatriarchDaughtersSection(
+          daughters: daughters,
+          onMemberTap: onMemberTap,
+        ),
+      ],
     );
   }
 }
@@ -580,6 +767,27 @@ class _PatriarchToSonsPainter extends CustomPainter {
   bool shouldRepaint(covariant _PatriarchToSonsPainter oldDelegate) =>
       oldDelegate.patriarchCenterX != patriarchCenterX ||
       oldDelegate.sonCenterXs != sonCenterXs;
+}
+
+class _SingleTrunkPainter extends CustomPainter {
+  const _SingleTrunkPainter({required this.centerX});
+
+  final double centerX;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = _lineColor
+      ..strokeWidth = _lineWidth
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.square;
+
+    canvas.drawLine(Offset(centerX, 0), Offset(centerX, size.height), paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SingleTrunkPainter oldDelegate) =>
+      oldDelegate.centerX != centerX;
 }
 
 class _ParentToChildrenPainter extends CustomPainter {

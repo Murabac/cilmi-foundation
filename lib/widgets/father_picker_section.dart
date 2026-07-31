@@ -5,7 +5,7 @@ import '../models/models.dart';
 import '../utils/father_picker_index.dart';
 import 'branch_father_filters.dart';
 
-/// Branch + father filters and selectable father list (shared by add/edit flows).
+/// Branch + sub-branch + father filters and selectable father list.
 class FatherPickerSection extends StatelessWidget {
   const FatherPickerSection({
     super.key,
@@ -18,6 +18,8 @@ class FatherPickerSection extends StatelessWidget {
     required this.onFatherFilterChanged,
     required this.onFatherSelected,
     required this.fatherOptions,
+    this.subBranchFilterId,
+    this.onSubBranchChanged,
     this.enabled = true,
     this.hintKey = 'add_member_father_branch_hint',
   });
@@ -25,9 +27,11 @@ class FatherPickerSection extends StatelessWidget {
   final FatherPickerIndex index;
   final AppLocalizations l10n;
   final String? branchFilterId;
+  final String? subBranchFilterId;
   final String? fatherFilterId;
   final Profile? selectedFather;
   final ValueChanged<String?> onBranchChanged;
+  final ValueChanged<String?>? onSubBranchChanged;
   final ValueChanged<String?> onFatherFilterChanged;
   final ValueChanged<Profile?> onFatherSelected;
   final List<Profile> fatherOptions;
@@ -40,6 +44,7 @@ class FatherPickerSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final visible = fatherOptions.take(40).toList();
+    final scopeId = subBranchFilterId ?? branchFilterId;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -61,13 +66,15 @@ class FatherPickerSection extends StatelessWidget {
             index: index.branchIndex,
             l10n: l10n,
             branchId: branchFilterId,
+            subBranchId: subBranchFilterId,
             fatherFilterId: fatherFilterId,
             onBranchChanged: onBranchChanged,
+            onSubBranchChanged: onSubBranchChanged,
             onFatherChanged: onFatherFilterChanged,
             enabled: enabled,
             lineageById: index.lineageById,
             fatherOptions: index.branchIndex.fathersWithChildren(
-              branchId: branchFilterId,
+              branchId: scopeId,
             ),
           ),
         ],
@@ -117,8 +124,7 @@ class FatherPickerSection extends StatelessWidget {
                 title: Text(
                   father.fullName,
                   style: TextStyle(
-                    fontWeight:
-                        selected ? FontWeight.bold : FontWeight.w600,
+                    fontWeight: selected ? FontWeight.bold : FontWeight.w600,
                   ),
                 ),
                 subtitle: Text(
@@ -135,9 +141,7 @@ class FatherPickerSection extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
-                l10n
-                    .t('father_picker_more_in_branch')
-                    .replaceAll(
+                l10n.t('father_picker_more_in_branch').replaceAll(
                       '{count}',
                       '${fatherOptions.length - visible.length}',
                     ),

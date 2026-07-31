@@ -29,11 +29,20 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
   bool _releasingClaims = false;
   bool _initialized = false;
   String? _memberBranchFilterId;
+  String? _memberSubBranchFilterId;
   String? _memberFatherFilterId;
 
   void _onMemberBranchChanged(String? branchId) {
     setState(() {
       _memberBranchFilterId = branchId;
+      _memberSubBranchFilterId = null;
+      _memberFatherFilterId = null;
+    });
+  }
+
+  void _onMemberSubBranchChanged(String? subBranchId) {
+    setState(() {
+      _memberSubBranchFilterId = subBranchId;
       _memberFatherFilterId = null;
     });
   }
@@ -449,7 +458,7 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
 
                 var filtered = branchIndex.filterByBranch(
                   profiles,
-                  _memberBranchFilterId,
+                  _memberSubBranchFilterId ?? _memberBranchFilterId,
                   profileId: (p) => p.id,
                 );
                 if (_memberFatherFilterId != null) {
@@ -459,6 +468,10 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
                     profileId: (p) => p.id,
                   );
                 }
+                final scopeId = _memberFatherFilterId ??
+                    _memberSubBranchFilterId ??
+                    _memberBranchFilterId;
+                branchIndex.sortByGeneration(filtered, scopeId);
 
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -468,13 +481,19 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
                         index: branchIndex,
                         l10n: l10n,
                         branchId: _memberBranchFilterId,
+                        subBranchId: _memberSubBranchFilterId,
                         fatherFilterId: _memberFatherFilterId,
                         onBranchChanged: _onMemberBranchChanged,
+                        onSubBranchChanged: _onMemberSubBranchChanged,
                         onFatherChanged: _onMemberFatherChanged,
                         lineageById: lineageById,
-                        showFatherFilter: _memberBranchFilterId != null,
+                        showFatherFilter:
+                            (_memberSubBranchFilterId ??
+                                    _memberBranchFilterId) !=
+                                null,
                         fatherOptions: branchIndex.fathersWithChildren(
-                          branchId: _memberBranchFilterId,
+                          branchId: _memberSubBranchFilterId ??
+                              _memberBranchFilterId,
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -487,6 +506,14 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
                       const SizedBox(height: 8),
                     ],
                     ...filtered.map((p) {
+                      final currentId = ref
+                          .watch(currentProfileProvider)
+                          .valueOrNull
+                          ?.id;
+                      final patriarchId = branchIndex.patriarchId;
+                      final canDeleteMember =
+                          p.id != currentId && p.id != patriarchId;
+
                       return Card(
                         margin: const EdgeInsets.only(bottom: 8),
                         child: ListTile(
@@ -519,16 +546,24 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
                                   value: 'release_claim',
                                   child: Text(l10n.t('release_profile_claim')),
                                 ),
-                              if (p.role != UserRole.manager)
-                                PopupMenuItem(
-                                  value: 'promote',
-                                  child: Text(l10n.t('promote_manager')),
-                                ),
-                              if (p.role == UserRole.manager)
-                                PopupMenuItem(
-                                  value: 'demote',
-                                  child: Text(l10n.t('demote_member')),
-                                ),
+                              if (p.role != UserRole.superAdmin) ...[
+                                if (p.role != UserRole.manager)
+                                  PopupMenuItem(
+                                    value: 'make_manager',
+                                    child: Text(l10n.t('promote_manager')),
+                                  ),
+                                if (p.role != UserRole.treasury)
+                                  PopupMenuItem(
+                                    value: 'make_treasury',
+                                    child: Text(l10n.t('promote_treasury')),
+                                  ),
+                                if (p.role == UserRole.manager ||
+                                    p.role == UserRole.treasury)
+                                  PopupMenuItem(
+                                    value: 'demote',
+                                    child: Text(l10n.t('demote_member')),
+                                  ),
+                              ],
                               PopupMenuItem(
                                 value: 'adult',
                                 child: Text(l10n.t('demographic_adult')),
@@ -541,6 +576,14 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
                                 value: 'child',
                                 child: Text(l10n.t('demographic_child')),
                               ),
+                              if (canDeleteMember)
+                                PopupMenuItem(
+                                  value: 'delete',
+                                  child: Text(
+                                    l10n.t('delete_member'),
+                                    style: TextStyle(color: Colors.red.shade700),
+                                  ),
+                                ),
                             ],
                           ),
                         ),
@@ -617,10 +660,65 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
       return;
     }
 
+    if (action == 'delete') {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(l10n.t('delete_member')),
+          content: Text(
+            l10n
+                .t('delete_member_confirm')
+                .replaceAll('{name}', profile.fullName),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(l10n.t('cancel')),
+            ),
+            FilledButton(
+              style:
+                  FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(l10n.t('delete')),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+
+      try {
+        await ref.read(adminServiceProvider).deleteFamilyMember(profile.id);
+        ref.invalidate(allProfilesProvider);
+        ref.invalidate(unclaimedProfilesProvider);
+        ref.invalidate(fullLineageTreeProvider);
+        ref.invalidate(poolBalanceProvider);
+        ref.invalidate(auditLedgerProvider);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(l10n.t('delete_member_done'))),
+          );
+        }
+      } catch (e) {
+        if (!mounted) return;
+        final msg = e.toString();
+        final friendly = msg.contains('cannot_delete_patriarch')
+            ? l10n.t('cannot_delete_patriarch')
+            : msg.contains('cannot_delete_self')
+                ? l10n.t('cannot_delete_self')
+                : msg;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(friendly)),
+        );
+      }
+      return;
+    }
+
     final service = ref.read(profileServiceProvider);
     switch (action) {
-      case 'promote':
+      case 'make_manager':
         await service.updateRole(profile.id, UserRole.manager);
+      case 'make_treasury':
+        await service.updateRole(profile.id, UserRole.treasury);
       case 'demote':
         await service.updateRole(profile.id, UserRole.familyMember);
       case 'adult':

@@ -2,7 +2,9 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../l10n/app_localizations.dart';
 import '../models/models.dart';
@@ -75,7 +77,7 @@ class _MemberBusinessCardSheetState
           ),
           data: (profile) {
             final current = currentAsync.valueOrNull;
-            final canEdit = current?.role.isAdminOrManager ?? false;
+            final canEdit = current?.role.canManageCare ?? false;
 
             return ListView(
               controller: scrollCtrl,
@@ -209,12 +211,10 @@ class MemberBusinessCardContent extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: 20),
-            _CardRow(
-              icon: Icons.phone_android,
-              label: l10n.t('mobile'),
-              value: profile.phoneNumber?.isNotEmpty == true
-                  ? displayPhone(profile.phoneNumber)
-                  : dash,
+            _PhoneCardRow(
+              profile: profile,
+              l10n: l10n,
+              dash: dash,
             ),
             _CardRow(
               icon: Icons.favorite_border,
@@ -297,6 +297,135 @@ class _Avatar extends StatelessWidget {
           fontWeight: FontWeight.bold,
           color: color,
         ),
+      ),
+    );
+  }
+}
+
+class _PhoneCardRow extends StatelessWidget {
+  const _PhoneCardRow({
+    required this.profile,
+    required this.l10n,
+    required this.dash,
+  });
+
+  final Profile profile;
+  final AppLocalizations l10n;
+  final String dash;
+
+  Future<void> _openUri(
+    BuildContext context,
+    Uri uri,
+    String failKey,
+  ) async {
+    final launched =
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!launched && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.t(failKey))),
+      );
+    }
+  }
+
+  Future<void> _call(BuildContext context) async {
+    final phone = profile.phoneNumber?.trim();
+    if (phone == null || phone.isEmpty) return;
+    final digits = normalizePhoneDigits(phone);
+    if (digits.isEmpty) return;
+    await _openUri(context, Uri.parse('tel:+$digits'), 'call_failed');
+  }
+
+  Future<void> _whatsApp(BuildContext context) async {
+    final phone = profile.phoneNumber?.trim();
+    if (phone == null || phone.isEmpty) return;
+    final digits = normalizePhoneDigits(phone);
+    if (digits.isEmpty) return;
+    await _openUri(
+      context,
+      Uri.parse('https://wa.me/$digits'),
+      'whatsapp_failed',
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final phone = profile.phoneNumber?.trim();
+    final hasPhone = phone != null && phone.isNotEmpty;
+    final primary = Theme.of(context).colorScheme.primary;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.phone_android, size: 20, color: Colors.grey.shade600),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  l10n.t('mobile'),
+                  style: Theme.of(context).textTheme.labelMedium,
+                ),
+                const SizedBox(height: 2),
+                if (!hasPhone)
+                  Text(
+                    dash,
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.w500,
+                        ),
+                  )
+                  else
+                  Row(
+                    children: [
+                      Expanded(
+                        child: InkWell(
+                          onTap: () => _call(context),
+                          borderRadius: BorderRadius.circular(4),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 2),
+                            child: Text(
+                              displayPhone(phone),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyLarge
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                    color: primary,
+                                    decoration: TextDecoration.underline,
+                                    decorationColor: primary,
+                                  ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: l10n.t('call'),
+                        onPressed: () => _call(context),
+                        visualDensity: VisualDensity.compact,
+                        icon: SvgPicture.asset(
+                          'assets/icons/call.svg',
+                          width: 28,
+                          height: 28,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: l10n.t('whatsapp'),
+                        onPressed: () => _whatsApp(context),
+                        visualDensity: VisualDensity.compact,
+                        icon: SvgPicture.asset(
+                          'assets/icons/whatsapp.svg',
+                          width: 28,
+                          height: 28,
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -389,6 +518,7 @@ class _AdminProfileEditFormState extends ConsumerState<_AdminProfileEditForm> {
   late int _careRating = CareRatingTheme.normalize(widget.profile.careRating);
   Profile? _selectedFather;
   String? _branchFilterId;
+  String? _subBranchFilterId;
   String? _fatherFilterId;
   FatherPickerIndex? _pickerIndex;
   bool _pickerInitialized = false;
@@ -499,6 +629,7 @@ class _AdminProfileEditFormState extends ConsumerState<_AdminProfileEditForm> {
         index.applyInitialBranchForFather(
           _selectedFather!,
           (id) => _branchFilterId = id,
+          setSubBranchId: (id) => _subBranchFilterId = id,
         );
       }
     }
@@ -507,11 +638,26 @@ class _AdminProfileEditFormState extends ConsumerState<_AdminProfileEditForm> {
   void _onBranchChanged(String? branchId) {
     setState(() {
       _branchFilterId = branchId;
+      _subBranchFilterId = null;
       _fatherFilterId = null;
       if (_selectedFather != null &&
           branchId != null &&
           _pickerIndex != null &&
           !_pickerIndex!.branchIndex.isInBranch(_selectedFather!.id, branchId)) {
+        _selectedFather = null;
+      }
+    });
+  }
+
+  void _onSubBranchChanged(String? subBranchId) {
+    setState(() {
+      _subBranchFilterId = subBranchId;
+      _fatherFilterId = null;
+      if (_selectedFather != null &&
+          subBranchId != null &&
+          _pickerIndex != null &&
+          !_pickerIndex!.branchIndex
+              .isInBranch(_selectedFather!.id, subBranchId)) {
         _selectedFather = null;
       }
     });
@@ -549,6 +695,7 @@ class _AdminProfileEditFormState extends ConsumerState<_AdminProfileEditForm> {
     final isPatriarch = index.branchIndex.patriarchId == widget.profile.id;
     final fatherOptions = index.candidates(
       branchId: _branchFilterId,
+      subBranchId: _subBranchFilterId,
       fatherFilterId: _fatherFilterId,
       editingProfileId: widget.profile.id,
     );
@@ -610,9 +757,11 @@ class _AdminProfileEditFormState extends ConsumerState<_AdminProfileEditForm> {
             index: index,
             l10n: l10n,
             branchFilterId: _branchFilterId,
+            subBranchFilterId: _subBranchFilterId,
             fatherFilterId: _fatherFilterId,
             selectedFather: _selectedFather,
             onBranchChanged: _onBranchChanged,
+            onSubBranchChanged: _onSubBranchChanged,
             onFatherFilterChanged: _onFatherFilterChanged,
             onFatherSelected: (father) =>
                 setState(() => _selectedFather = father),

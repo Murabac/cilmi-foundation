@@ -1,4 +1,4 @@
-package com.reershyoonis.reer_sh_yoonis
+package com.cilmifoundation.mobile
 
 import android.Manifest
 import android.content.Intent

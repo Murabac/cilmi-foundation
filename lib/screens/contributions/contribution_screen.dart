@@ -25,8 +25,9 @@ class _ContributionScreenState extends ConsumerState<ContributionScreen> {
     GlobalSettings settings,
     double amount,
     AppLocalizations l10n,
+    PaymentProvider provider,
   ) async {
-    final ussd = settings.ussdCodeFor(amount);
+    final ussd = settings.ussdCodeFor(amount, provider: provider);
     final result = await PhoneDialer.callUssd(ussd);
     if (!mounted) return;
 
@@ -116,10 +117,24 @@ class _ContributionScreenState extends ConsumerState<ContributionScreen> {
                   DateFormat('MMMM yyyy').format(now).toUpperCase();
               final settings = settingsAsync.valueOrNull;
               final rate = settings?.currentAdultRate ?? 50;
-              final ussd = settings?.ussdCodeFor(rate) ??
+              final zaadUssd = settings?.ussdCodeFor(
+                    rate,
+                    provider: PaymentProvider.zaad,
+                  ) ??
                   PaymentConfig.ussdCode(
                     amount: rate,
-                    merchantId: PaymentConfig.defaultMerchantId,
+                    merchantId: PaymentConfig.defaultZaadMerchantId,
+                    ussdServiceCode: PaymentConfig.defaultZaadUssdServiceCode,
+                  );
+              final edahabUssd = settings?.ussdCodeFor(
+                    rate,
+                    provider: PaymentProvider.edahab,
+                  ) ??
+                  PaymentConfig.ussdCode(
+                    amount: rate,
+                    merchantId: PaymentConfig.defaultEdahabMerchantId,
+                    ussdServiceCode:
+                        PaymentConfig.defaultEdahabUssdServiceCode,
                   );
               final awaitingAdmin = current?.status == PaymentStatus.pending &&
                   current?.transactionReference != null;
@@ -153,10 +168,25 @@ class _ContributionScreenState extends ConsumerState<ContributionScreen> {
                     const SizedBox(height: 16),
                     _PayCard(
                       l10n: l10n,
-                      merchantId: settings?.paymentMerchantId,
-                      ussd: ussd,
+                      zaadMerchantId: settings?.paymentMerchantId ??
+                          PaymentConfig.defaultZaadMerchantId,
+                      edahabMerchantId: settings?.edahabMerchantId ??
+                          PaymentConfig.defaultEdahabMerchantId,
+                      zaadUssd: zaadUssd,
+                      edahabUssd: edahabUssd,
                       enabled: profile != null && settings != null,
-                      onPay: () => _dialUssdPayment(settings!, rate, l10n),
+                      onPayZaad: () => _dialUssdPayment(
+                        settings!,
+                        rate,
+                        l10n,
+                        PaymentProvider.zaad,
+                      ),
+                      onPayEdahab: () => _dialUssdPayment(
+                        settings!,
+                        rate,
+                        l10n,
+                        PaymentProvider.edahab,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     _NotifyAdminsCard(
@@ -348,17 +378,23 @@ class _StatusHero extends StatelessWidget {
 class _PayCard extends StatelessWidget {
   const _PayCard({
     required this.l10n,
-    required this.ussd,
+    required this.zaadMerchantId,
+    required this.edahabMerchantId,
+    required this.zaadUssd,
+    required this.edahabUssd,
     required this.enabled,
-    required this.onPay,
-    this.merchantId,
+    required this.onPayZaad,
+    required this.onPayEdahab,
   });
 
   final AppLocalizations l10n;
-  final String ussd;
+  final String zaadMerchantId;
+  final String edahabMerchantId;
+  final String zaadUssd;
+  final String edahabUssd;
   final bool enabled;
-  final VoidCallback onPay;
-  final String? merchantId;
+  final VoidCallback onPayZaad;
+  final VoidCallback onPayEdahab;
 
   @override
   Widget build(BuildContext context) {
@@ -387,31 +423,96 @@ class _PayCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          if (merchantId != null)
-            Text(
-              l10n.t('payment_send_to').replaceAll('{number}', merchantId!),
-              style: TextStyle(
-                color: Colors.grey.shade700,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          const SizedBox(height: 6),
           Text(
             l10n.t('ussd_dial_hint'),
             style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 14),
+          _ProviderPayRow(
+            label: l10n.t('pay_with_zaad'),
+            merchantId: zaadMerchantId,
+            ussd: zaadUssd,
+            accent: const Color(0xFF2E7D32),
+            enabled: enabled,
+            onPay: onPayZaad,
+            l10n: l10n,
+          ),
+          const SizedBox(height: 12),
+          _ProviderPayRow(
+            label: l10n.t('pay_with_edahab'),
+            merchantId: edahabMerchantId,
+            ussd: edahabUssd,
+            accent: const Color(0xFFE8A838),
+            enabled: enabled,
+            onPay: onPayEdahab,
+            l10n: l10n,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProviderPayRow extends StatelessWidget {
+  const _ProviderPayRow({
+    required this.label,
+    required this.merchantId,
+    required this.ussd,
+    required this.accent,
+    required this.enabled,
+    required this.onPay,
+    required this.l10n,
+  });
+
+  final String label;
+  final String merchantId;
+  final String ussd;
+  final Color accent;
+  final bool enabled;
+  final VoidCallback onPay;
+  final AppLocalizations l10n;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: accent.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              color: accent,
+              fontSize: 15,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            l10n.t('payment_send_to').replaceAll('{number}', merchantId),
+            style: TextStyle(
+              color: Colors.grey.shade800,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
           SelectableText(
             ussd,
             style: const TextStyle(
               fontWeight: FontWeight.w700,
               letterSpacing: 0.4,
-              fontSize: 15,
+              fontSize: 14,
               color: BrandColors.navy,
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           FilledButton.icon(
+            style: FilledButton.styleFrom(backgroundColor: accent),
             onPressed: enabled ? onPay : null,
             icon: const Icon(Icons.phone_rounded),
             label: Text(l10n.t('pay_now')),

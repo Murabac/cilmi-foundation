@@ -351,22 +351,34 @@ class GlobalSettings {
     required this.appLanguage,
     required this.paymentMerchantId,
     required this.ussdServiceCode,
+    required this.edahabMerchantId,
+    required this.edahabUssdServiceCode,
     required this.familyTreeView,
     this.updatedAt,
   });
 
   final double currentAdultRate;
   final String appLanguage;
+
+  /// ZAAD merchant / till number.
   final String paymentMerchantId;
   final String ussdServiceCode;
+
+  /// e-Dahab merchant / till number.
+  final String edahabMerchantId;
+  final String edahabUssdServiceCode;
+
   final FamilyTreeViewMode familyTreeView;
   final DateTime? updatedAt;
 
   factory GlobalSettings.fromJson(Map<String, dynamic> json) => GlobalSettings(
         currentAdultRate: (json['current_adult_rate'] as num).toDouble(),
         appLanguage: json['app_language'] as String? ?? 'en',
-        paymentMerchantId: json['payment_merchant_id'] as String? ?? '123456',
+        paymentMerchantId: json['payment_merchant_id'] as String? ?? '484594',
         ussdServiceCode: json['ussd_service_code'] as String? ?? '883',
+        edahabMerchantId: json['edahab_merchant_id'] as String? ?? '764043',
+        edahabUssdServiceCode:
+            json['edahab_ussd_service_code'] as String? ?? '789',
         familyTreeView: FamilyTreeViewMode.fromDb(
           json['family_tree_view'] as String?,
         ),

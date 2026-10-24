@@ -609,6 +609,8 @@ class SettingsService {
     String? language,
     String? paymentMerchantId,
     String? ussdServiceCode,
+    String? edahabMerchantId,
+    String? edahabUssdServiceCode,
     FamilyTreeViewMode? familyTreeView,
   }) async {
     final updates = <String, dynamic>{
@@ -620,6 +622,12 @@ class SettingsService {
       updates['payment_merchant_id'] = paymentMerchantId;
     }
     if (ussdServiceCode != null) updates['ussd_service_code'] = ussdServiceCode;
+    if (edahabMerchantId != null) {
+      updates['edahab_merchant_id'] = edahabMerchantId;
+    }
+    if (edahabUssdServiceCode != null) {
+      updates['edahab_ussd_service_code'] = edahabUssdServiceCode;
+    }
     if (familyTreeView != null) {
       updates['family_tree_view'] = familyTreeView.dbValue;
     }

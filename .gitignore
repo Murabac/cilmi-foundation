@@ -46,3 +46,11 @@ app.*.map.json
 
 # Local Supabase credentials (copy from env.json.example)
 env.json
+
+# Android release signing (never commit)
+android/key.properties
+android/KEYSTORE_BACKUP.txt
+android/*.jks
+android/*.keystore
+*.jks
+*.keystore

@@ -1,14 +1,22 @@
 import '../models/models.dart';
 
-/// Mobile money USSD payment (e.g. *883*123456*50#).
+enum PaymentProvider { zaad, edahab }
+
+/// Mobile money USSD payment (e.g. *883*484594*50#).
 class PaymentConfig {
-  static const defaultUssdServiceCode = '883';
-  static const defaultMerchantId = '123456';
+  static const defaultZaadUssdServiceCode = '883';
+  static const defaultZaadMerchantId = '484594';
+  static const defaultEdahabUssdServiceCode = '789';
+  static const defaultEdahabMerchantId = '764043';
+
+  /// Kept for older call sites (ZAAD defaults).
+  static const defaultUssdServiceCode = defaultZaadUssdServiceCode;
+  static const defaultMerchantId = defaultZaadMerchantId;
 
   static String ussdCode({
     required double amount,
     required String merchantId,
-    String ussdServiceCode = defaultUssdServiceCode,
+    String ussdServiceCode = defaultZaadUssdServiceCode,
   }) {
     final amountStr = amount.round().toString();
     return '*$ussdServiceCode*$merchantId*$amountStr#';
@@ -18,7 +26,7 @@ class PaymentConfig {
   static Uri ussdDialUri({
     required double amount,
     required String merchantId,
-    String ussdServiceCode = defaultUssdServiceCode,
+    String ussdServiceCode = defaultZaadUssdServiceCode,
   }) {
     final code = ussdCode(
       amount: amount,
@@ -30,15 +38,33 @@ class PaymentConfig {
 }
 
 extension GlobalSettingsPayment on GlobalSettings {
-  String ussdCodeFor(double amount) => PaymentConfig.ussdCode(
+  String merchantIdFor(PaymentProvider provider) => switch (provider) {
+        PaymentProvider.zaad => paymentMerchantId,
+        PaymentProvider.edahab => edahabMerchantId,
+      };
+
+  String ussdServiceCodeFor(PaymentProvider provider) => switch (provider) {
+        PaymentProvider.zaad => ussdServiceCode,
+        PaymentProvider.edahab => edahabUssdServiceCode,
+      };
+
+  String ussdCodeFor(
+    double amount, {
+    PaymentProvider provider = PaymentProvider.zaad,
+  }) =>
+      PaymentConfig.ussdCode(
         amount: amount,
-        merchantId: paymentMerchantId,
-        ussdServiceCode: ussdServiceCode,
+        merchantId: merchantIdFor(provider),
+        ussdServiceCode: ussdServiceCodeFor(provider),
       );
 
-  Uri ussdDialUriFor(double amount) => PaymentConfig.ussdDialUri(
+  Uri ussdDialUriFor(
+    double amount, {
+    PaymentProvider provider = PaymentProvider.zaad,
+  }) =>
+      PaymentConfig.ussdDialUri(
         amount: amount,
-        merchantId: paymentMerchantId,
-        ussdServiceCode: ussdServiceCode,
+        merchantId: merchantIdFor(provider),
+        ussdServiceCode: ussdServiceCodeFor(provider),
       );
 }

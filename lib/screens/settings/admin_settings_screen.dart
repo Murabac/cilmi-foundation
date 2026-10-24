@@ -22,6 +22,8 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
   final _rateCtrl = TextEditingController();
   final _merchantCtrl = TextEditingController();
   final _ussdCtrl = TextEditingController();
+  final _edahabMerchantCtrl = TextEditingController();
+  final _edahabUssdCtrl = TextEditingController();
   String _language = 'en';
   FamilyTreeViewMode _familyTreeView = FamilyTreeViewMode.chart;
   bool _saving = false;
@@ -56,6 +58,8 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
     _rateCtrl.dispose();
     _merchantCtrl.dispose();
     _ussdCtrl.dispose();
+    _edahabMerchantCtrl.dispose();
+    _edahabUssdCtrl.dispose();
     super.dispose();
   }
 
@@ -64,6 +68,8 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
     _rateCtrl.text = settings.currentAdultRate.toStringAsFixed(2);
     _merchantCtrl.text = settings.paymentMerchantId;
     _ussdCtrl.text = settings.ussdServiceCode;
+    _edahabMerchantCtrl.text = settings.edahabMerchantId;
+    _edahabUssdCtrl.text = settings.edahabUssdServiceCode;
     _language = settings.appLanguage;
     _familyTreeView = settings.familyTreeView;
     _initialized = true;
@@ -72,10 +78,18 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
   String? _paymentValidationError(AppLocalizations l10n) {
     final merchant = _merchantCtrl.text.trim();
     final ussd = _ussdCtrl.text.trim();
+    final edahabMerchant = _edahabMerchantCtrl.text.trim();
+    final edahabUssd = _edahabUssdCtrl.text.trim();
     if (merchant.isEmpty || !RegExp(r'^\d+$').hasMatch(merchant)) {
       return l10n.t('payment_merchant_invalid');
     }
     if (ussd.isEmpty || !RegExp(r'^\d+$').hasMatch(ussd)) {
+      return l10n.t('ussd_service_code_invalid');
+    }
+    if (edahabMerchant.isEmpty || !RegExp(r'^\d+$').hasMatch(edahabMerchant)) {
+      return l10n.t('payment_merchant_invalid');
+    }
+    if (edahabUssd.isEmpty || !RegExp(r'^\d+$').hasMatch(edahabUssd)) {
       return l10n.t('ussd_service_code_invalid');
     }
     return null;
@@ -98,6 +112,8 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
             language: _language,
             paymentMerchantId: _merchantCtrl.text.trim(),
             ussdServiceCode: _ussdCtrl.text.trim(),
+            edahabMerchantId: _edahabMerchantCtrl.text.trim(),
+            edahabUssdServiceCode: _edahabUssdCtrl.text.trim(),
             familyTreeView: _familyTreeView,
           );
       ref.read(localeProvider.notifier).state = _language;
@@ -243,13 +259,20 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
                             color: Colors.grey.shade700,
                           ),
                     ),
+                    const SizedBox(height: 12),
+                    Text(
+                      l10n.t('zaad'),
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
                     const SizedBox(height: 8),
                     TextField(
                       controller: _merchantCtrl,
                       keyboardType: TextInputType.number,
                       decoration: InputDecoration(
-                        labelText: l10n.t('payment_merchant_id'),
-                        hintText: '123456',
+                        labelText: l10n.t('zaad_merchant_id'),
+                        hintText: '484594',
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -257,8 +280,33 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
                       controller: _ussdCtrl,
                       keyboardType: TextInputType.number,
                       decoration: InputDecoration(
-                        labelText: l10n.t('ussd_service_code'),
+                        labelText: l10n.t('zaad_ussd_service_code'),
                         hintText: '883',
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      l10n.t('edahab'),
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _edahabMerchantCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: l10n.t('edahab_merchant_id'),
+                        hintText: '764043',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _edahabUssdCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: l10n.t('edahab_ussd_service_code'),
+                        hintText: '789',
                       ),
                     ),
                     const SizedBox(height: 16),

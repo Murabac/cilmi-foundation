@@ -39,6 +39,7 @@ Future<bool> showAddFamilyMemberDialog(
   if (created == true) {
     ref.invalidate(allProfilesProvider);
     ref.invalidate(unclaimedProfilesProvider);
+      ref.invalidate(lineageDirectoryProvider);
     ref.invalidate(fullLineageTreeProvider);
     ref.invalidate(memberCountProvider);
   }

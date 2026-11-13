@@ -81,6 +81,8 @@ class MonthlyPaymentReport {
       .where((r) => r.category == PaymentReportCategory.paid)
       .fold(0.0, (sum, r) => sum + (r.contribution?.amountPaid ?? 0));
 
-  double get expectedAdultTotal =>
-      rows.where((r) => !r.paymentExempt).length * adultRate;
+  /// Sum of each payer's own monthly amount.
+  double get expectedAdultTotal => rows
+      .where((r) => !r.paymentExempt)
+      .fold(0.0, (sum, r) => sum + (r.profile.monthlyAmount ?? adultRate));
 }

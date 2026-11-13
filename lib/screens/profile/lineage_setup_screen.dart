@@ -74,6 +74,7 @@ class _LineageSetupScreenState extends ConsumerState<LineageSetupScreen> {
       ref.invalidate(fullLineageTreeProvider);
       ref.invalidate(memberCountProvider);
       ref.invalidate(unclaimedProfilesProvider);
+      ref.invalidate(lineageDirectoryProvider);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

@@ -252,6 +252,7 @@ class _ClaimCardState extends ConsumerState<_ClaimCard> {
           .approveProfileClaim(widget.claim.id);
       ref.invalidate(pendingClaimRequestsProvider);
       ref.invalidate(unclaimedProfilesProvider);
+      ref.invalidate(lineageDirectoryProvider);
       ref.invalidate(allProfilesProvider);
       ref.invalidate(fullLineageTreeProvider);
       ref.invalidate(memberCountProvider);

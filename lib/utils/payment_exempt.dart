@@ -60,15 +60,11 @@ bool isAutomaticallyPaymentExempt(
   return false;
 }
 
-/// Patriarch, uncles/aunties, daughter-branch kids, students/children, and anyone
-/// below the grandchild generation are exempt — unless admin override says otherwise.
+/// Only members on the payers list (monthly amount > 0) pay. Everyone else is
+/// exempt. Deceased members and an admin "exempt" override (temporary pause)
+/// are exempt too. Mirrors reer_sh_yoonis.is_profile_payment_exempt (038).
 bool isProfilePaymentExempt(Profile profile, {required List<Profile> allProfiles}) {
-  switch (profile.billingOverride) {
-    case BillingOverride.exempt:
-      return true;
-    case BillingOverride.billable:
-      return false;
-    case null:
-      return isAutomaticallyPaymentExempt(profile, allProfiles: allProfiles);
-  }
+  if (profile.maritalStatus == MaritalStatus.deceased) return true;
+  if (profile.billingOverride == BillingOverride.exempt) return true;
+  return !profile.isPayer;
 }

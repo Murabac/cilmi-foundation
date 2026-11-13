@@ -28,21 +28,22 @@ dev_dependencies:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: assets/logo.png
-  adaptive_icon_background: "#F1EBD9"
-  adaptive_icon_foreground: assets/logo.png
-  adaptive_icon_foreground_inset: 16
+  remove_alpha_ios: true
+  image_path: assets/brand/app-icon-1024.png
+  adaptive_icon_background: "#0F3D3E"
+  adaptive_icon_foreground: assets/brand/app-icon-adaptive-foreground.png
+  adaptive_icon_foreground_inset: 0
   web:
     generate: true
-    image_path: assets/logo.png
-    background_color: "#F1EBD9"
-    theme_color: "#102850"
+    image_path: assets/brand/app-icon-1024.png
+    background_color: "#0F3D3E"
+    theme_color: "#0F3D3E"
   windows:
     generate: true
-    image_path: assets/logo.png
+    image_path: assets/brand/app-icon-1024.png
   macos:
     generate: true
-    image_path: assets/logo.png
+    image_path: assets/brand/app-icon-1024.png
 
 flutter:
   uses-material-design: true
@@ -51,5 +52,6 @@ flutter:
     - assets/l10n/en.json
     - assets/l10n/so.json
     - assets/logo.png
+    - assets/brand/
     - assets/icons/whatsapp.svg
     - assets/icons/call.svg

@@ -13,6 +13,7 @@ import '../../utils/phone_utils.dart';
 import '../../widgets/branch_father_filters.dart';
 import '../../widgets/member_business_card.dart';
 import '../../widgets/widgets.dart';
+import 'whatsapp_message_screen.dart';
 
 class PaymentReportScreen extends ConsumerStatefulWidget {
   const PaymentReportScreen({super.key, this.showAppBar = true});
@@ -99,6 +100,10 @@ class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
     if (verifier == null || !mounted) return;
 
     final referenceCtrl = TextEditingController();
+    final due = row.profile.monthlyAmount ?? report.adultRate;
+    final amountCtrl = TextEditingController(
+      text: due == due.roundToDouble() ? due.toStringAsFixed(0) : '$due',
+    );
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -108,6 +113,16 @@ class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(l10n.t('mark_paid_confirm').replaceAll('{name}', row.profile.fullName)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: amountCtrl,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(
+                labelText: l10n.t('amount_paid_usd'),
+                prefixText: '\$ ',
+              ),
+            ),
             const SizedBox(height: 12),
             TextField(
               controller: referenceCtrl,
@@ -132,7 +147,9 @@ class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
     );
 
     final reference = referenceCtrl.text;
+    final amountPaid = double.tryParse(amountCtrl.text.trim());
     referenceCtrl.dispose();
+    amountCtrl.dispose();
     if (confirmed != true || !mounted) return;
 
     try {
@@ -144,6 +161,7 @@ class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
             adultRate: report.adultRate,
             markPaid: true,
             reference: reference,
+            amountPaid: amountPaid,
           );
       _refreshReport();
       if (mounted) {
@@ -272,30 +290,43 @@ class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
     _refreshReport();
   }
 
+  /// Payers list: [override] exempt = take off the list; anything else asks
+  /// for the monthly amount (add to the list, or change the amount).
   Future<void> _setBillingOverride(
     MemberPaymentRow row,
     MonthlyPaymentReport report,
     BillingOverride? override,
   ) async {
     final l10n = await ref.read(localizationsProvider.future);
+    if (!mounted) return;
+    double? amount;
+    if (override != BillingOverride.exempt) {
+      amount = await showMonthlyAmountDialog(
+        context,
+        l10n,
+        name: row.profile.fullName,
+        initial: row.profile.monthlyAmount,
+      );
+      if (amount == null || !mounted) return;
+    }
     try {
-      await ref.read(contributionServiceProvider).setBillingOverride(
+      await ref.read(contributionServiceProvider).setMonthlyAmount(
             profileId: row.profile.id,
-            override: override,
+            amount: amount,
             ensureBillingMonth: report.month,
             ensureBillingYear: report.year,
-            adultRate: report.adultRate,
           );
       ref.invalidate(allProfilesProvider);
       _refreshReport();
       if (!mounted) return;
-      final message = switch (override) {
-        BillingOverride.exempt => l10n.t('billing_set_exempt'),
-        BillingOverride.billable => l10n.t('billing_set_billable'),
-        null => l10n.t('billing_set_automatic'),
-      };
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
+        SnackBar(
+          content: Text(
+            amount == null
+                ? l10n.t('billing_set_exempt')
+                : l10n.t('billing_set_billable'),
+          ),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
@@ -368,6 +399,20 @@ class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
                       label: monthLabel,
                       onPrevious: () => _shiftMonth(-1),
                       onNext: () => _shiftMonth(1),
+                    ),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF1E7A4C),
+                        minimumSize: const Size.fromHeight(52),
+                      ),
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const WhatsAppMessageScreen(),
+                        ),
+                      ),
+                      icon: const Icon(Icons.share),
+                      label: Text(l10n.t('whatsapp_share_report')),
                     ),
                     const SizedBox(height: 12),
                     Text(
@@ -710,7 +755,9 @@ class _MemberPaymentTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (label, color, icon) = _statusVisual(row.category, l10n);
-    final amount = row.contribution?.amountDue ?? report.adultRate;
+    final amount = row.contribution?.amountDue ??
+        row.profile.monthlyAmount ??
+        report.adultRate;
     final isExempt = row.paymentExempt;
     final isPaid = row.category == PaymentReportCategory.paid;
     final isPending = row.category == PaymentReportCategory.pendingVerification;
@@ -769,13 +816,8 @@ class _MemberPaymentTile extends StatelessWidget {
                     _PaymentDetailRow(
                       label: l10n.t('billing_status'),
                       value: isExempt
-                          ? (row.profile.billingOverride == BillingOverride.exempt
-                              ? l10n.t('billing_status_exempt_manual')
-                              : l10n.t('billing_status_exempt'))
-                          : (row.profile.billingOverride ==
-                                  BillingOverride.billable
-                              ? l10n.t('billing_status_pays_manual')
-                              : l10n.t('billing_status_pays')),
+                          ? l10n.t('billing_status_exempt')
+                          : '${l10n.t('billing_status_pays')} · \$${(row.profile.monthlyAmount ?? amount).toStringAsFixed(0)}/${l10n.t('per_month_short')}',
                       valueStyle: TextStyle(
                         fontWeight: FontWeight.w600,
                         color: isExempt
@@ -888,14 +930,14 @@ class _MemberPaymentTile extends StatelessWidget {
                         ],
                       ),
                     ),
-                  if (row.profile.billingOverride != null)
+                  if (!isExempt)
                     PopupMenuItem(
                       value: 'auto',
                       child: Row(
                         children: [
-                          const Icon(Icons.restart_alt, size: 20),
+                          const Icon(Icons.edit, size: 20),
                           const SizedBox(width: 8),
-                          Text(l10n.t('use_automatic_billing')),
+                          Text(l10n.t('change_monthly_amount')),
                         ],
                       ),
                     ),
@@ -1011,4 +1053,74 @@ class _PaymentDetailRow extends StatelessWidget {
       ],
     );
   }
+}
+
+/// Asks for a monthly contribution amount. Returns null when cancelled.
+Future<double?> showMonthlyAmountDialog(
+  BuildContext context,
+  AppLocalizations l10n, {
+  required String name,
+  double? initial,
+}) async {
+  final ctrl = TextEditingController(
+    text: initial == null
+        ? ''
+        : (initial == initial.roundToDouble()
+            ? initial.toStringAsFixed(0)
+            : '$initial'),
+  );
+  final result = await showDialog<double>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setLocal) => AlertDialog(
+        title: Text(l10n.t('monthly_amount')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              children: [5, 10, 20, 50].map((v) {
+                return ChoiceChip(
+                  label: Text('\$$v'),
+                  selected: ctrl.text == '$v',
+                  onSelected: (_) => setLocal(() => ctrl.text = '$v'),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              autofocus: initial == null,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              onChanged: (_) => setLocal(() {}),
+              decoration: InputDecoration(
+                labelText: l10n.t('monthly_amount_usd'),
+                prefixText: '\$ ',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(l10n.t('cancel')),
+          ),
+          FilledButton(
+            onPressed: () {
+              final v = double.tryParse(ctrl.text.trim());
+              if (v == null || v <= 0) return;
+              Navigator.pop(ctx, v);
+            },
+            child: Text(l10n.t('save')),
+          ),
+        ],
+      ),
+    ),
+  );
+  ctrl.dispose();
+  return result;
 }

@@ -116,7 +116,9 @@ class _ContributionScreenState extends ConsumerState<ContributionScreen> {
               final monthLabel =
                   DateFormat('MMMM yyyy').format(now).toUpperCase();
               final settings = settingsAsync.valueOrNull;
-              final rate = settings?.currentAdultRate ?? 50;
+              final rate = profile?.monthlyAmount ??
+                  settings?.currentAdultRate ??
+                  50;
               final zaadUssd = settings?.ussdCodeFor(
                     rate,
                     provider: PaymentProvider.zaad,

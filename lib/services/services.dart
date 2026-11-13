@@ -121,28 +121,27 @@ class ProfileService {
         !isSheekhYonisName(profile.fullName);
   }
 
-  Future<List<Profile>> getUnclaimedProfiles() async {
-    final rows = await _db(_client)
-        .from('profiles')
-        .select()
-        .filter('auth_user_id', 'is', null)
-        .order('birth_order')
-        .order('full_name');
-
-    final nameRows =
-        await _db(_client).from('profiles').select('id, full_name');
-    final nameById = {
-      for (final r in nameRows as List)
-        r['id'] as String: r['full_name'] as String,
-    };
-
-    return (rows as List).map((e) {
-      final profile = Profile.fromJson(e);
-      if (profile.fatherId == null) return profile;
-      final fatherName = nameById[profile.fatherId];
-      if (fatherName == null) return profile;
-      return profile.copyWith(fatherName: fatherName);
+  /// Masked family directory (names + tree links, no contact details).
+  /// Works for signed-in users whose claim is not approved yet, so they can
+  /// find their name. Approved members get full rows from the same RPC.
+  Future<List<Profile>> getLineageDirectory() async {
+    final rows = await _db(_client).rpc('lineage_directory');
+    final profiles = (rows as List)
+        .map((e) => Profile.fromJson(e as Map<String, dynamic>))
+        .toList();
+    final nameById = {for (final p in profiles) p.id: p.fullName};
+    return profiles.map((profile) {
+      final fatherName =
+          profile.fatherId == null ? null : nameById[profile.fatherId];
+      return fatherName == null
+          ? profile
+          : profile.copyWith(fatherName: fatherName);
     }).toList();
+  }
+
+  Future<List<Profile>> getUnclaimedProfiles() async {
+    final directory = await getLineageDirectory();
+    return directory.where((p) => p.authUserId == null).toList();
   }
 
   Future<List<Profile>> getSonsOfPatriarch() async {
@@ -527,8 +526,15 @@ class ProfileService {
     String? fatherId,
     bool clearFatherId = false,
     int? birthOrder,
+    double? monthlyAmount,
+    bool clearMonthlyAmount = false,
   }) async {
     final updates = <String, dynamic>{};
+    if (clearMonthlyAmount) {
+      updates['monthly_amount'] = null;
+    } else if (monthlyAmount != null) {
+      updates['monthly_amount'] = monthlyAmount <= 0 ? null : monthlyAmount;
+    }
     if (phoneNumber != null) updates['phone_number'] = phoneNumber;
     if (clearMaritalStatus) {
       updates['marital_status'] = null;
@@ -572,6 +578,38 @@ class ProfileService {
     return Profile.fromJson(data);
   }
 
+  /// Saves this month's status (self or admin) and records it in the
+  /// monthly history used by the status reports.
+  Future<void> updateMemberStatus({
+    required String profileId,
+    required LifeStatus lifeStatus,
+    String? occupation,
+    MaritalStatus? maritalStatus,
+  }) async {
+    await _db(_client).rpc(
+      'update_member_status',
+      params: {
+        'p_profile_id': profileId,
+        'p_life_status': lifeStatus.dbValue,
+        'p_occupation': lifeStatus.hasJob ? occupation?.trim() : null,
+        'p_marital_status': maritalStatus?.dbValue,
+      },
+    );
+  }
+
+  /// Status history rows for one month (admins/managers see everyone).
+  Future<List<MemberStatusEntry>> getStatusHistory(DateTime month) async {
+    final period =
+        '${month.year.toString().padLeft(4, '0')}-${month.month.toString().padLeft(2, '0')}-01';
+    final rows = await _db(_client)
+        .from('member_status_history')
+        .select()
+        .eq('period', period);
+    return (rows as List)
+        .map((e) => MemberStatusEntry.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
   Future<String> uploadAvatar(
     String profileId,
     Uint8List bytes,
@@ -612,8 +650,12 @@ class SettingsService {
     String? edahabMerchantId,
     String? edahabUssdServiceCode,
     FamilyTreeViewMode? familyTreeView,
+    String? whatsappGroupTitle,
   }) async {
     final updates = <String, dynamic>{
+      if (whatsappGroupTitle != null &&
+          whatsappGroupTitle.trim().isNotEmpty)
+        'whatsapp_group_title': whatsappGroupTitle.trim(),
       'updated_at': DateTime.now().toIso8601String(),
     };
     if (adultRate != null) updates['current_adult_rate'] = adultRate;
@@ -706,7 +748,8 @@ class ContributionService {
     }
 
     final settings = await SettingsService(_client).getSettings();
-    final due = amountDue ?? settings.currentAdultRate;
+    final due =
+        amountDue ?? payer?.monthlyAmount ?? settings.currentAdultRate;
     final refCode = (reference == null || reference.trim().isEmpty)
         ? 'submitted'
         : reference.trim();
@@ -781,6 +824,7 @@ class ContributionService {
     required double adultRate,
     required bool markPaid,
     String? reference,
+    double? amountPaid,
   }) async {
     final profileRows = await _db(_client).from('profiles').select();
     final profiles = (profileRows as List)
@@ -790,6 +834,8 @@ class ContributionService {
     if (member != null && isProfilePaymentExempt(member, allProfiles: profiles)) {
       throw Exception('payment_exempt');
     }
+    final due = member?.monthlyAmount ?? adultRate;
+    final paid = (amountPaid != null && amountPaid > 0) ? amountPaid : due;
 
     final existing = await getContributionForPeriod(
       userId: userId,
@@ -806,8 +852,8 @@ class ContributionService {
       if (existing != null) {
         await _db(_client).from('contributions').update({
           'status': 'approved',
-          'amount_due': adultRate,
-          'amount_paid': adultRate,
+          'amount_due': due,
+          'amount_paid': paid,
           'transaction_reference':
               existing.transactionReference ?? refNote,
           'verified_by': verifierId,
@@ -818,8 +864,8 @@ class ContributionService {
           'user_id': userId,
           'billing_month': month,
           'billing_year': year,
-          'amount_due': adultRate,
-          'amount_paid': adultRate,
+          'amount_due': due,
+          'amount_paid': paid,
           'transaction_reference': refNote,
           'status': 'approved',
           'verified_by': verifierId,
@@ -931,6 +977,46 @@ class ContributionService {
           'status': 'pending',
         });
       }
+    }
+  }
+
+  /// Admin: put a member on the payers list with [amount] per month, or take
+  /// them off it (amount null/0 = exempt). Keeps the selected month in sync.
+  Future<void> setMonthlyAmount({
+    required String profileId,
+    double? amount,
+    int? ensureBillingMonth,
+    int? ensureBillingYear,
+  }) async {
+    final client = _client;
+    final value = (amount == null || amount <= 0) ? null : amount;
+    await _db(client)
+        .from('profiles')
+        .update({'monthly_amount': value, 'billing_override': null})
+        .eq('id', profileId);
+
+    await _db(client).rpc('purge_exempt_contributions');
+
+    if (value == null || ensureBillingMonth == null || ensureBillingYear == null) {
+      return;
+    }
+    final existing = await getContributionForPeriod(
+      userId: profileId,
+      month: ensureBillingMonth,
+      year: ensureBillingYear,
+    );
+    if (existing == null) {
+      await _db(client).from('contributions').insert({
+        'user_id': profileId,
+        'billing_month': ensureBillingMonth,
+        'billing_year': ensureBillingYear,
+        'amount_due': value,
+        'status': 'pending',
+      });
+    } else if (existing.status != PaymentStatus.approved) {
+      await _db(client)
+          .from('contributions')
+          .update({'amount_due': value}).eq('id', existing.id);
     }
   }
 }

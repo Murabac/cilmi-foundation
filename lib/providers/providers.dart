@@ -85,6 +85,12 @@ final globalSettingsProvider = FutureProvider<GlobalSettings>((ref) async {
   return settings;
 });
 
+/// Masked directory used by the claim flow (works before approval).
+final lineageDirectoryProvider = FutureProvider<List<Profile>>((ref) async {
+  ref.watch(authStateProvider);
+  return ref.watch(profileServiceProvider).getLineageDirectory();
+});
+
 final allProfilesProvider = FutureProvider<List<Profile>>((ref) async {
   ref.watch(authStateProvider);
   return ref.watch(profileServiceProvider).getAllProfilesSortedByCare();
@@ -241,3 +247,17 @@ class FamilyTreeContext {
   final List<Profile> siblings;
   final List<Profile> children;
 }
+
+/// Month shown in the member status report (first day of month).
+final selectedStatusMonthProvider = StateProvider<DateTime>((ref) {
+  final now = DateTime.now();
+  return DateTime(now.year, now.month);
+});
+
+/// Status history rows for the selected report month.
+final statusHistoryProvider =
+    FutureProvider<List<MemberStatusEntry>>((ref) async {
+  ref.watch(authStateProvider);
+  final month = ref.watch(selectedStatusMonthProvider);
+  return ref.watch(profileServiceProvider).getStatusHistory(month);
+});

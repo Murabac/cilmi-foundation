@@ -100,7 +100,10 @@ class _HomeShellState extends ConsumerState<HomeShell> {
               padding: EdgeInsets.only(left: 8),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: AppLogo(height: 36),
+                child: AppLogo(
+                  height: 34,
+                  variant: AppLogoVariant.horizontalReversed,
+                ),
               ),
             ),
             actions: [

@@ -10,6 +10,7 @@ import '../../utils/branch_filter.dart';
 import '../../utils/lineage_name.dart';
 import '../../widgets/add_family_member_dialog.dart';
 import '../../widgets/branch_father_filters.dart';
+import '../../widgets/dashboard_actions.dart';
 import '../../widgets/widgets.dart';
 import '../admin/treasury_screen.dart';
 
@@ -85,6 +86,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       ),
                 ),
                 const SizedBox(height: 20),
+                if (profile.maritalStatus != MaritalStatus.deceased) ...[
+                  MonthlyStatusCard(profile: profile, l10n: l10n),
+                  const SizedBox(height: 14),
+                ],
+                if (canCare) ...[
+                  StaffQuickActions(l10n: l10n, canPayments: canPayments),
+                  const SizedBox(height: 14),
+                ],
               ],
 
               // Pool balance visible to everyone; treasury staff can open treasury.

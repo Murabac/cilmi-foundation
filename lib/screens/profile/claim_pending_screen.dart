@@ -33,6 +33,7 @@ class _ClaimPendingScreenState extends ConsumerState<ClaimPendingScreen> {
       ref.invalidate(fullLineageTreeProvider);
       ref.invalidate(memberCountProvider);
       ref.invalidate(unclaimedProfilesProvider);
+      ref.invalidate(lineageDirectoryProvider);
       ref.invalidate(pendingClaimRequestsProvider);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

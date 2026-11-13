@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../providers/providers.dart';
+import '../../widgets/dashboard_actions.dart';
 import '../../widgets/member_business_card.dart';
 import '../../widgets/widgets.dart';
 import 'lineage_setup_screen.dart';
@@ -60,6 +61,8 @@ class ProfileScreen extends ConsumerWidget {
               const SizedBox(height: 16),
             ],
             MemberBusinessCardContent(profile: profile, l10n: l10n),
+            const SizedBox(height: 16),
+            MonthlyStatusCard(profile: profile, l10n: l10n),
             const SizedBox(height: 16),
             Row(
               children: [

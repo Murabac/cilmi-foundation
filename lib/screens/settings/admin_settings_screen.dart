@@ -193,6 +193,7 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
           await ref.read(adminServiceProvider).releaseStaleProfileClaims();
       ref.invalidate(allProfilesProvider);
       ref.invalidate(unclaimedProfilesProvider);
+      ref.invalidate(lineageDirectoryProvider);
       ref.invalidate(fullLineageTreeProvider);
       ref.invalidate(memberCountProvider);
       if (mounted) {
@@ -692,6 +693,7 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
         await ref.read(adminServiceProvider).releaseProfileClaim(profile.id);
         ref.invalidate(allProfilesProvider);
         ref.invalidate(unclaimedProfilesProvider);
+      ref.invalidate(lineageDirectoryProvider);
         ref.invalidate(fullLineageTreeProvider);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -738,6 +740,7 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
         await ref.read(adminServiceProvider).deleteFamilyMember(profile.id);
         ref.invalidate(allProfilesProvider);
         ref.invalidate(unclaimedProfilesProvider);
+      ref.invalidate(lineageDirectoryProvider);
         ref.invalidate(fullLineageTreeProvider);
         ref.invalidate(poolBalanceProvider);
         ref.invalidate(auditLedgerProvider);

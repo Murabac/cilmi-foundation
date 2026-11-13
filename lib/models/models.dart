@@ -8,6 +8,42 @@ enum MaritalStatus { single, married, deceased }
 
 enum PaymentStatus { pending, approved, rejected }
 
+/// Monthly member status (school, work, etc.) for family reports.
+enum LifeStatus {
+  school,
+  university,
+  working,
+  business,
+  unemployed,
+  homemaker,
+  retired,
+  tooYoung,
+}
+
+extension LifeStatusX on LifeStatus {
+  String get dbValue => switch (this) {
+        LifeStatus.tooYoung => 'too_young',
+        _ => name,
+      };
+
+  static LifeStatus? fromDb(String? v) => switch (v) {
+        'school' => LifeStatus.school,
+        'university' => LifeStatus.university,
+        'working' => LifeStatus.working,
+        'business' => LifeStatus.business,
+        'unemployed' => LifeStatus.unemployed,
+        'homemaker' => LifeStatus.homemaker,
+        'retired' => LifeStatus.retired,
+        'too_young' => LifeStatus.tooYoung,
+        _ => null,
+      };
+
+  String get labelKey => 'life_$dbValue';
+
+  /// Job title field applies to these statuses.
+  bool get hasJob => this == LifeStatus.working || this == LifeStatus.business;
+}
+
 /// Admin force billing: null = follow automatic exemption rules.
 enum BillingOverride { exempt, billable }
 
@@ -120,6 +156,9 @@ class Profile {
     this.city,
     this.avatarUrl,
     this.billingOverride,
+    this.monthlyAmount,
+    this.lifeStatus,
+    this.statusUpdatedAt,
   });
 
   final String id;
@@ -143,6 +182,22 @@ class Profile {
   final String? city;
   final String? avatarUrl;
   final BillingOverride? billingOverride;
+
+  /// Monthly contribution in USD. Null or 0 = not on the payers list.
+  final double? monthlyAmount;
+  final LifeStatus? lifeStatus;
+  final DateTime? statusUpdatedAt;
+
+  bool get isPayer => (monthlyAmount ?? 0) > 0;
+
+  /// True when the member has not updated their status this calendar month.
+  bool get statusIsStale {
+    final at = statusUpdatedAt;
+    if (at == null) return true;
+    final now = DateTime.now();
+    final local = at.toLocal();
+    return local.year != now.year || local.month != now.month;
+  }
 
   factory Profile.fromJson(Map<String, dynamic> json) => Profile(
         id: json['id'] as String,
@@ -168,6 +223,11 @@ class Profile {
         avatarUrl: json['avatar_url'] as String?,
         billingOverride:
             BillingOverrideX.fromDb(json['billing_override'] as String?),
+        monthlyAmount: (json['monthly_amount'] as num?)?.toDouble(),
+        lifeStatus: LifeStatusX.fromDb(json['life_status'] as String?),
+        statusUpdatedAt: json['status_updated_at'] != null
+            ? DateTime.parse(json['status_updated_at'] as String)
+            : null,
       );
 
   static String? _parseEmbeddedName(dynamic embedded, String field) {
@@ -195,6 +255,10 @@ class Profile {
         if (city != null) 'city': city,
         if (avatarUrl != null) 'avatar_url': avatarUrl,
         'billing_override': billingOverride?.dbValue,
+        'monthly_amount': monthlyAmount,
+        'life_status': lifeStatus?.dbValue,
+        if (statusUpdatedAt != null)
+          'status_updated_at': statusUpdatedAt!.toIso8601String(),
       };
 
   Profile copyWith({
@@ -214,6 +278,10 @@ class Profile {
     String? avatarUrl,
     BillingOverride? billingOverride,
     bool clearBillingOverride = false,
+    double? monthlyAmount,
+    bool clearMonthlyAmount = false,
+    LifeStatus? lifeStatus,
+    DateTime? statusUpdatedAt,
   }) =>
       Profile(
         id: id,
@@ -237,6 +305,10 @@ class Profile {
         billingOverride: clearBillingOverride
             ? null
             : (billingOverride ?? this.billingOverride),
+        monthlyAmount:
+            clearMonthlyAmount ? null : (monthlyAmount ?? this.monthlyAmount),
+        lifeStatus: lifeStatus ?? this.lifeStatus,
+        statusUpdatedAt: statusUpdatedAt ?? this.statusUpdatedAt,
       );
 }
 
@@ -354,6 +426,7 @@ class GlobalSettings {
     required this.edahabMerchantId,
     required this.edahabUssdServiceCode,
     required this.familyTreeView,
+    this.whatsappGroupTitle = 'AHMED CILMI GROUP',
     this.updatedAt,
   });
 
@@ -369,6 +442,9 @@ class GlobalSettings {
   final String edahabUssdServiceCode;
 
   final FamilyTreeViewMode familyTreeView;
+
+  /// Group line in the WhatsApp contributions message.
+  final String whatsappGroupTitle;
   final DateTime? updatedAt;
 
   factory GlobalSettings.fromJson(Map<String, dynamic> json) => GlobalSettings(
@@ -382,6 +458,8 @@ class GlobalSettings {
         familyTreeView: FamilyTreeViewMode.fromDb(
           json['family_tree_view'] as String?,
         ),
+        whatsappGroupTitle:
+            json['whatsapp_group_title'] as String? ?? 'AHMED CILMI GROUP',
         updatedAt: json['updated_at'] != null
             ? DateTime.parse(json['updated_at'] as String)
             : null,
@@ -459,3 +537,34 @@ class LedgerEntry {
 }
 
 enum LedgerSource { contribution, treasuryInflow, treasuryOutflow }
+
+/// One member's status for one month (from member_status_history).
+class MemberStatusEntry {
+  const MemberStatusEntry({
+    required this.profileId,
+    required this.period,
+    this.lifeStatus,
+    this.occupation,
+    this.maritalStatus,
+    this.updatedAt,
+  });
+
+  final String profileId;
+  final DateTime period;
+  final LifeStatus? lifeStatus;
+  final String? occupation;
+  final MaritalStatus? maritalStatus;
+  final DateTime? updatedAt;
+
+  factory MemberStatusEntry.fromJson(Map<String, dynamic> json) =>
+      MemberStatusEntry(
+        profileId: json['profile_id'] as String,
+        period: DateTime.parse(json['period'] as String),
+        lifeStatus: LifeStatusX.fromDb(json['life_status'] as String?),
+        occupation: json['occupation'] as String?,
+        maritalStatus: MaritalStatusX.fromDb(json['marital_status'] as String?),
+        updatedAt: json['updated_at'] != null
+            ? DateTime.parse(json['updated_at'] as String)
+            : null,
+      );
+}

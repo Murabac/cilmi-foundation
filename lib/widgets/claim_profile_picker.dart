@@ -95,7 +95,7 @@ class _ClaimProfilePickerState extends ConsumerState<ClaimProfilePicker> {
     final l10n = widget.l10n;
     final selection = widget.selection;
     final unclaimedAsync = ref.watch(unclaimedProfilesProvider);
-    final allAsync = ref.watch(allProfilesProvider);
+    final allAsync = ref.watch(lineageDirectoryProvider);
 
     return unclaimedAsync.when(
       loading: () => _PickerShell(
@@ -111,7 +111,7 @@ class _ClaimProfilePickerState extends ConsumerState<ClaimProfilePicker> {
           message: e.toString(),
           onRetry: () {
             ref.invalidate(unclaimedProfilesProvider);
-            ref.invalidate(allProfilesProvider);
+            ref.invalidate(lineageDirectoryProvider);
           },
         ),
       ),
@@ -130,7 +130,7 @@ class _ClaimProfilePickerState extends ConsumerState<ClaimProfilePicker> {
               message: e.toString(),
               onRetry: () {
                 ref.invalidate(unclaimedProfilesProvider);
-                ref.invalidate(allProfilesProvider);
+                ref.invalidate(lineageDirectoryProvider);
               },
             ),
           ),

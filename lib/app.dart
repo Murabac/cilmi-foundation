@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import 'config/supabase_config.dart';
 import 'l10n/app_localizations.dart';
@@ -29,9 +28,7 @@ class ReerShYoonisApp extends ConsumerWidget {
       data: (_) => MaterialApp(
         title: 'CILMI FOUNDATION',
         debugShowCheckedModeBanner: false,
-        theme: AppTheme.light().copyWith(
-          textTheme: GoogleFonts.interTextTheme(AppTheme.light().textTheme),
-        ),
+        theme: AppTheme.light(),
         locale: Locale(locale),
         routes: {
           '/verification': (_) => const VerificationQueueScreen(),

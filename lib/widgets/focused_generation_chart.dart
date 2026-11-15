@@ -484,6 +484,16 @@ class _SiblingRow extends StatelessWidget {
             _OverflowChip(
               count: overflow,
               label: l10n.t('relation_more_siblings'),
+              onTap: () => _showGeedMemberPicker(
+                context: context,
+                l10n: l10n,
+                title: l10n.t('geed_pick_siblings'),
+                members: siblings,
+                focusId: focusId,
+                viewerId: viewerId,
+                initialsFor: initialsFor,
+                onSelect: onSelect,
+              ),
             ),
           ],
         ],
@@ -535,6 +545,16 @@ class _ChildRow extends StatelessWidget {
           _OverflowChip(
             count: overflow,
             label: l10n.t('relation_more_children'),
+            onTap: () => _showGeedMemberPicker(
+              context: context,
+              l10n: l10n,
+              title: l10n.t('geed_pick_children'),
+              members: children,
+              focusId: null,
+              viewerId: null,
+              initialsFor: initialsFor,
+              onSelect: onSelect,
+            ),
           ),
         ],
       ],
@@ -542,49 +562,257 @@ class _ChildRow extends StatelessWidget {
   }
 }
 
+Future<void> _showGeedMemberPicker({
+  required BuildContext context,
+  required AppLocalizations l10n,
+  required String title,
+  required List<TreeNode> members,
+  required String? focusId,
+  required String? viewerId,
+  required String Function(String) initialsFor,
+  required ValueChanged<Profile> onSelect,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: BrandColors.surface,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (sheetContext) {
+      final bottom = MediaQuery.paddingOf(sheetContext).bottom;
+      return SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.7,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 10),
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: BrandColors.border,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 12, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          color: BrandColors.ink,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(sheetContext),
+                      icon: const Icon(Icons.close_rounded),
+                      style: IconButton.styleFrom(
+                        minimumSize: const Size(48, 48),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1, color: BrandColors.border),
+              Expanded(
+                child: ListView.separated(
+                  padding: EdgeInsets.fromLTRB(8, 8, 8, 16 + bottom),
+                  itemCount: members.length,
+                  separatorBuilder: (_, _) => const Divider(
+                    height: 1,
+                    indent: 72,
+                    color: BrandColors.border,
+                  ),
+                  itemBuilder: (context, index) {
+                    final node = members[index];
+                    final profile = node.profile;
+                    final isFocus = profile.id == focusId;
+                    final isYou = profile.id == viewerId;
+                    final care = CareRatingTheme.colorFor(profile.careRating);
+                    final initials = initialsFor(profile.fullName);
+                    return Material(
+                      color: isYou
+                          ? BrandColors.gold.withValues(alpha: 0.12)
+                          : Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          Navigator.pop(sheetContext);
+                          onSelect(profile);
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          child: Row(
+                            children: [
+                              Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  CircleAvatar(
+                                    radius: 22,
+                                    backgroundColor: (isYou || isFocus)
+                                        ? BrandColors.teal
+                                        : BrandColors.mint,
+                                    child: Text(
+                                      initials,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 14,
+                                        color: (isYou || isFocus)
+                                            ? BrandColors.linen
+                                            : BrandColors.teal,
+                                      ),
+                                    ),
+                                  ),
+                                  Positioned(
+                                    right: -1,
+                                    bottom: -1,
+                                    child: Container(
+                                      width: 12,
+                                      height: 12,
+                                      decoration: BoxDecoration(
+                                        color: care,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: BrandColors.surface,
+                                          width: 2,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  profile.fullName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                    color: BrandColors.ink,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              if (isYou)
+                                Container(
+                                  height: 26,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                  ),
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: BrandColors.gold
+                                        .withValues(alpha: 0.28),
+                                    borderRadius: BorderRadius.circular(13),
+                                  ),
+                                  child: Text(
+                                    l10n.t('relation_you'),
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w800,
+                                      color: BrandColors.onGold,
+                                    ),
+                                  ),
+                                )
+                              else if (isFocus)
+                                const Icon(
+                                  Icons.check_circle_rounded,
+                                  color: BrandColors.teal,
+                                )
+                              else
+                                const Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: BrandColors.muted,
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
 class _OverflowChip extends StatelessWidget {
-  const _OverflowChip({required this.count, required this.label});
+  const _OverflowChip({
+    required this.count,
+    required this.label,
+    required this.onTap,
+  });
 
   final int count;
   final String label;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       width: 72,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: BrandColors.surface,
-              border: Border.all(color: BrandColors.muted, width: 1.5),
-            ),
-            child: Text(
-              '+$count',
-              style: const TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 16,
-                color: BrandColors.teal,
-              ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: BrandColors.surface,
+                    border: Border.all(color: BrandColors.muted, width: 1.5),
+                  ),
+                  child: Text(
+                    '+$count',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                      color: BrandColors.teal,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: BrandColors.muted,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 6),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: BrandColors.muted,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

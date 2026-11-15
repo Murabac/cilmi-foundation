@@ -175,6 +175,8 @@
   "relation_child": "Child",
   "relation_child_first": "Child · firstborn",
   "relation_more_children": "More children",
+  "geed_pick_siblings": "All siblings",
+  "geed_pick_children": "All children",
   "tree_tap_hint": "Tap a person to open their card and explore their branch.",
   "abtirsiin_coming_hint": "Your full lineage (nasab line and timeline) arrives in the next step. For now use Tree or List.",
   "abtirsiin_header_subtitle": "How you connect to the family",

@@ -125,6 +125,7 @@ class _MemberBusinessCardSheetState
                     l10n: widget.l10n,
                     sheetMode: true,
                     onClose: () => Navigator.of(context).pop(),
+                    onFocusMember: widget.onViewBranch,
                     onViewBranch: widget.onViewBranch == null
                         ? null
                         : () {
@@ -158,6 +159,168 @@ final _profileProvider =
       );
 });
 
+Future<void> _showChildrenPicker({
+  required BuildContext context,
+  required WidgetRef ref,
+  required AppLocalizations l10n,
+  required List<TreeNode> children,
+  required ValueChanged<String>? onFocusMember,
+}) {
+  String initials(String name) {
+    final parts = name.trim().split(RegExp(r'\s+'));
+    if (parts.isEmpty || parts.first.isEmpty) return '?';
+    if (parts.length == 1) return parts.first[0].toUpperCase();
+    return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+  }
+
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: BrandColors.surface,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (sheetContext) {
+      final bottom = MediaQuery.paddingOf(sheetContext).bottom;
+      return SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.7,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 10),
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: BrandColors.border,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 12, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        l10n.t('geed_pick_children'),
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          color: BrandColors.ink,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(sheetContext),
+                      icon: const Icon(Icons.close_rounded),
+                      style: IconButton.styleFrom(
+                        minimumSize: const Size(48, 48),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1, color: BrandColors.border),
+              Expanded(
+                child: ListView.separated(
+                  padding: EdgeInsets.fromLTRB(8, 8, 8, 16 + bottom),
+                  itemCount: children.length,
+                  separatorBuilder: (_, _) => const Divider(
+                    height: 1,
+                    indent: 72,
+                    color: BrandColors.border,
+                  ),
+                  itemBuilder: (context, index) {
+                    final child = children[index].profile;
+                    final care = CareRatingTheme.colorFor(child.careRating);
+                    return InkWell(
+                      onTap: () async {
+                        Navigator.pop(sheetContext);
+                        if (!context.mounted) return;
+                        await showMemberBusinessCard(
+                          context,
+                          ref,
+                          child,
+                          onViewBranch: onFocusMember,
+                        );
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        child: Row(
+                          children: [
+                            Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                CircleAvatar(
+                                  radius: 22,
+                                  backgroundColor: BrandColors.mint,
+                                  child: Text(
+                                    initials(child.fullName),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 14,
+                                      color: BrandColors.teal,
+                                    ),
+                                  ),
+                                ),
+                                Positioned(
+                                  right: -1,
+                                  bottom: -1,
+                                  child: Container(
+                                    width: 12,
+                                    height: 12,
+                                    decoration: BoxDecoration(
+                                      color: care,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: BrandColors.surface,
+                                        width: 2,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                child.fullName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: BrandColors.ink,
+                                ),
+                              ),
+                            ),
+                            const Icon(
+                              Icons.chevron_right_rounded,
+                              color: BrandColors.muted,
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
 class MemberBusinessCardContent extends ConsumerWidget {
   const MemberBusinessCardContent({
     super.key,
@@ -166,6 +329,7 @@ class MemberBusinessCardContent extends ConsumerWidget {
     this.sheetMode = false,
     this.onClose,
     this.onViewBranch,
+    this.onFocusMember,
   });
 
   final Profile profile;
@@ -173,6 +337,8 @@ class MemberBusinessCardContent extends ConsumerWidget {
   final bool sheetMode;
   final VoidCallback? onClose;
   final VoidCallback? onViewBranch;
+  /// When set (from the tree sheet), used to focus a selected child on Geed.
+  final ValueChanged<String>? onFocusMember;
 
   String _initials(String name) {
     final parts = name.trim().split(RegExp(r'\s+'));
@@ -427,6 +593,15 @@ class MemberBusinessCardContent extends ConsumerWidget {
               child: _StatTile(
                 value: '$childCount',
                 label: l10n.t('member_card_stat_children'),
+                onTap: childCount > 0 && node != null
+                    ? () => _showChildrenPicker(
+                          context: context,
+                          ref: ref,
+                          l10n: l10n,
+                          children: node.children,
+                          onFocusMember: onFocusMember,
+                        )
+                    : null,
               ),
             ),
             const SizedBox(width: 10),
@@ -455,14 +630,10 @@ class MemberBusinessCardContent extends ConsumerWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    SvgPicture.asset(
-                      'assets/icons/call.svg',
-                      width: 20,
-                      height: 20,
-                      colorFilter: const ColorFilter.mode(
-                        BrandColors.teal,
-                        BlendMode.srcIn,
-                      ),
+                    const Icon(
+                      Icons.phone_rounded,
+                      size: 20,
+                      color: BrandColors.teal,
                     ),
                     const SizedBox(width: 8),
                     Text(
@@ -487,12 +658,8 @@ class MemberBusinessCardContent extends ConsumerWidget {
                   children: [
                     SvgPicture.asset(
                       'assets/icons/whatsapp.svg',
-                      width: 20,
-                      height: 20,
-                      colorFilter: const ColorFilter.mode(
-                        BrandColors.teal,
-                        BlendMode.srcIn,
-                      ),
+                      width: 22,
+                      height: 22,
                     ),
                     const SizedBox(width: 8),
                     Text(
@@ -572,18 +739,26 @@ class _DashedRRectPainter extends CustomPainter {
 }
 
 class _StatTile extends StatelessWidget {
-  const _StatTile({required this.value, required this.label});
+  const _StatTile({
+    required this.value,
+    required this.label,
+    this.onTap,
+  });
 
   final String value;
   final String label;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final child = Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: BrandColors.linen,
         borderRadius: BorderRadius.circular(14),
+        border: onTap == null
+            ? null
+            : Border.all(color: BrandColors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -596,15 +771,38 @@ class _StatTile extends StatelessWidget {
               color: BrandColors.teal,
             ),
           ),
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: BrandColors.muted,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: BrandColors.muted,
+                  ),
+                ),
+              ),
+              if (onTap != null)
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  size: 18,
+                  color: BrandColors.muted,
+                ),
+            ],
           ),
         ],
+      ),
+    );
+
+    if (onTap == null) return child;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: child,
       ),
     );
   }

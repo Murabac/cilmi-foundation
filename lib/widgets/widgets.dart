@@ -249,12 +249,10 @@ class ProfileCard extends StatelessWidget {
         width: compact ? 100 : 140,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: highlighted
-              ? Theme.of(context).colorScheme.primaryContainer
-              : Colors.white,
+          color: highlighted ? BrandColors.mint : BrandColors.surface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: highlighted ? ringColor : Colors.grey.shade300,
+            color: highlighted ? ringColor : BrandColors.border,
             width: highlighted ? 3 : 1,
           ),
           boxShadow: highlighted
@@ -285,6 +283,7 @@ class ProfileCard extends StatelessWidget {
               style: TextStyle(
                 fontWeight: highlighted ? FontWeight.bold : FontWeight.w500,
                 fontSize: compact ? 11 : 13,
+                color: BrandColors.ink,
               ),
             ),
             if (!compact) ...[

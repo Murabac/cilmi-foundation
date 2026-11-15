@@ -20,18 +20,6 @@ class BrandColors {
   static const pendingBg = Color(0xFFFBEFD9);
   static const urgent = Color(0xFFB42318);
   static const urgentBg = Color(0xFFFBE4E1);
-
-  /// Temporary alias — remove in Step 15. Prefer [teal].
-  @Deprecated('Use BrandColors.teal')
-  static const navy = teal;
-
-  /// Temporary alias — remove in Step 15. Prefer [linen].
-  @Deprecated('Use BrandColors.linen')
-  static const cream = linen;
-
-  /// Temporary alias — remove in Step 15. Prefer [tealMid].
-  @Deprecated('Use BrandColors.tealMid')
-  static const softNavy = tealMid;
 }
 
 class CareRatingTheme {

@@ -449,7 +449,7 @@ class GlobalSettings {
 
   factory GlobalSettings.fromJson(Map<String, dynamic> json) => GlobalSettings(
         currentAdultRate: (json['current_adult_rate'] as num).toDouble(),
-        appLanguage: json['app_language'] as String? ?? 'en',
+        appLanguage: json['app_language'] as String? ?? 'so',
         paymentMerchantId: json['payment_merchant_id'] as String? ?? '484594',
         ussdServiceCode: json['ussd_service_code'] as String? ?? '883',
         edahabMerchantId: json['edahab_merchant_id'] as String? ?? '764043',

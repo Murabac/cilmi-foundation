@@ -11,18 +11,22 @@ import '../models/models.dart';
 import '../providers/providers.dart';
 import '../theme/app_theme.dart';
 import '../theme/member_status_theme.dart';
+import '../models/lineage_tree.dart';
 import '../utils/branch_filter.dart';
 import '../utils/father_picker_index.dart';
 import '../utils/lineage_name.dart';
+import '../utils/payment_exempt.dart';
 import '../utils/phone_utils.dart';
+import 'abtirsiin_lineage_view.dart';
 import 'father_picker_section.dart';
 import 'widgets.dart';
 
 Future<void> showMemberBusinessCard(
   BuildContext context,
   WidgetRef ref,
-  Profile profile,
-) async {
+  Profile profile, {
+  ValueChanged<String>? onViewBranch,
+}) async {
   final l10n = await ref.read(localizationsProvider.future);
   if (!context.mounted) return;
 
@@ -30,12 +34,15 @@ Future<void> showMemberBusinessCard(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
+    backgroundColor: BrandColors.surface,
+    barrierColor: BrandColors.teal.withValues(alpha: 0.48),
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
     ),
     builder: (ctx) => _MemberBusinessCardSheet(
       profileId: profile.id,
       l10n: l10n,
+      onViewBranch: onViewBranch,
     ),
   );
 }
@@ -44,10 +51,12 @@ class _MemberBusinessCardSheet extends ConsumerStatefulWidget {
   const _MemberBusinessCardSheet({
     required this.profileId,
     required this.l10n,
+    this.onViewBranch,
   });
 
   final String profileId;
   final AppLocalizations l10n;
+  final ValueChanged<String>? onViewBranch;
 
   @override
   ConsumerState<_MemberBusinessCardSheet> createState() =>
@@ -65,9 +74,9 @@ class _MemberBusinessCardSheetState
 
     return DraggableScrollableSheet(
       expand: false,
-      initialChildSize: 0.72,
+      initialChildSize: 0.78,
       minChildSize: 0.45,
-      maxChildSize: 0.92,
+      maxChildSize: 0.94,
       builder: (_, scrollCtrl) {
         return profileAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
@@ -81,15 +90,15 @@ class _MemberBusinessCardSheetState
 
             return ListView(
               controller: scrollCtrl,
-              padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 28),
               children: [
                 Center(
                   child: Container(
-                    width: 40,
-                    height: 4,
+                    width: 44,
+                    height: 5,
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2),
+                      color: BrandColors.border,
+                      borderRadius: BorderRadius.circular(3),
                     ),
                   ),
                 ),
@@ -101,17 +110,31 @@ class _MemberBusinessCardSheetState
                     onCancel: () => setState(() => _editing = false),
                     onSaved: () {
                       ref.invalidate(_profileProvider(widget.profileId));
-                      ref.invalidate(profileLineageNameProvider(widget.profileId));
-                      ref.invalidate(profileLineageDisplayProvider(widget.profileId));
+                      ref.invalidate(
+                          profileLineageNameProvider(widget.profileId));
+                      ref.invalidate(
+                          profileLineageDisplayProvider(widget.profileId));
                       ref.invalidate(allProfilesProvider);
                       ref.invalidate(fullLineageTreeProvider);
                       setState(() => _editing = false);
                     },
                   )
                 else ...[
-                  MemberBusinessCardContent(profile: profile, l10n: widget.l10n),
+                  MemberBusinessCardContent(
+                    profile: profile,
+                    l10n: widget.l10n,
+                    sheetMode: true,
+                    onClose: () => Navigator.of(context).pop(),
+                    onViewBranch: widget.onViewBranch == null
+                        ? null
+                        : () {
+                            final id = profile.id;
+                            Navigator.of(context).pop();
+                            widget.onViewBranch!(id);
+                          },
+                  ),
                   if (canEdit) ...[
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 16),
                     FilledButton.icon(
                       onPressed: () => setState(() => _editing = true),
                       icon: const Icon(Icons.edit),
@@ -140,178 +163,52 @@ class MemberBusinessCardContent extends ConsumerWidget {
     super.key,
     required this.profile,
     required this.l10n,
+    this.sheetMode = false,
+    this.onClose,
+    this.onViewBranch,
   });
 
   final Profile profile;
   final AppLocalizations l10n;
+  final bool sheetMode;
+  final VoidCallback? onClose;
+  final VoidCallback? onViewBranch;
 
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final ratingColor = CareRatingTheme.colorFor(profile.careRating);
-    final careLevel = CareRatingTheme.normalize(profile.careRating);
-    final dash = l10n.t('not_set');
-    final lineageAsync = ref.watch(profileLineageDisplayProvider(profile.id));
-
-    return Card(
-      elevation: 4,
-      shadowColor: ratingColor.withValues(alpha: 0.25),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-        side: BorderSide(color: ratingColor.withValues(alpha: 0.35)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          children: [
-            _Avatar(profile: profile, size: 88),
-            const SizedBox(height: 16),
-            lineageAsync.when(
-              loading: () => Text(
-                profile.fullName,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              error: (_, __) => Text(
-                profile.fullName,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              data: (info) => Column(
-                children: [
-                  Text(
-                    info.displayName,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                  ),
-                  if (info.subtitleKind != null && info.subtitleText != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      info.subtitleKind == LineageSubtitleKind.bornToMother
-                          ? l10n
-                              .t('born_to_mother')
-                              .replaceAll('{name}', info.subtitleText!)
-                          : l10n
-                              .t('son_of_lineage')
-                              .replaceAll('{lineage}', info.subtitleText!),
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: Colors.grey.shade600,
-                            fontSize: 10,
-                            height: 1.2,
-                          ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-            _PhoneCardRow(
-              profile: profile,
-              l10n: l10n,
-              dash: dash,
-            ),
-            _CardRow(
-              icon: Icons.favorite_border,
-              label: l10n.t('marital_status'),
-              valueWidget: Align(
-                alignment: Alignment.centerLeft,
-                child: MemberStatusBadge(profile: profile, l10n: l10n),
-              ),
-              value: MemberStatusTheme.labelKey(
-                        demographic: profile.demographic,
-                        maritalStatus: profile.maritalStatus,
-                      ) !=
-                      null
-                  ? l10n.t(
-                      MemberStatusTheme.labelKey(
-                        demographic: profile.demographic,
-                        maritalStatus: profile.maritalStatus,
-                      )!,
-                    )
-                  : dash,
-              valueColor: MemberStatusTheme.colorFor(
-                demographic: profile.demographic,
-                maritalStatus: profile.maritalStatus,
-              ),
-            ),
-            _CardRow(
-              icon: Icons.health_and_safety_outlined,
-              label: l10n.t('care_rating'),
-              value:
-                  '$careLevel · ${l10n.t(CareRatingTheme.labelKey(careLevel))}',
-              valueColor: ratingColor,
-            ),
-            _CardRow(
-              icon: Icons.work_outline,
-              label: l10n.t('occupation'),
-              value: profile.occupation?.isNotEmpty == true
-                  ? profile.occupation!
-                  : dash,
-            ),
-            _CardRow(
-              icon: Icons.location_city_outlined,
-              label: l10n.t('city'),
-              value:
-                  profile.city?.isNotEmpty == true ? profile.city! : dash,
-            ),
-          ],
-        ),
-      ),
-    );
+  String _initials(String name) {
+    final parts = name.trim().split(RegExp(r'\s+'));
+    if (parts.isEmpty || parts.first.isEmpty) return '?';
+    if (parts.length == 1) return parts.first[0].toUpperCase();
+    return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
   }
-}
 
-class _Avatar extends StatelessWidget {
-  const _Avatar({required this.profile, this.size = 64});
-
-  final Profile profile;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = CareRatingTheme.colorFor(profile.careRating);
-    final initial =
-        profile.fullName.isNotEmpty ? profile.fullName[0].toUpperCase() : '?';
-
-    if (profile.avatarUrl != null && profile.avatarUrl!.isNotEmpty) {
-      return CircleAvatar(
-        radius: size / 2,
-        backgroundImage: NetworkImage(profile.avatarUrl!),
-        onBackgroundImageError: (_, __) {},
-      );
+  String? _relationPill(Profile? viewer) {
+    if (viewer == null) return null;
+    if (viewer.id == profile.id) return l10n.t('relation_you');
+    if (profile.id == viewer.fatherId) {
+      return l10n.t('relation_your_father');
     }
-
-    return CircleAvatar(
-      radius: size / 2,
-      backgroundColor: color.withValues(alpha: 0.15),
-      child: Text(
-        initial,
-        style: TextStyle(
-          fontSize: size * 0.4,
-          fontWeight: FontWeight.bold,
-          color: color,
-        ),
-      ),
-    );
+    if (profile.fatherId != null && profile.fatherId == viewer.id) {
+      return l10n.t('relation_your_child');
+    }
+    if (profile.fatherId != null &&
+        viewer.fatherId != null &&
+        profile.fatherId == viewer.fatherId) {
+      final base = l10n.t('relation_your_sibling');
+      if (profile.birthOrder > 0 && viewer.birthOrder > 0) {
+        if (profile.birthOrder < viewer.birthOrder) {
+          return '$base · ${l10n.t('relation_older')}';
+        }
+        if (profile.birthOrder > viewer.birthOrder) {
+          return '$base · ${l10n.t('relation_younger')}';
+        }
+      }
+      return base;
+    }
+    if (profile.id == viewer.spouseId || viewer.id == profile.spouseId) {
+      return l10n.t('relation_your_spouse');
+    }
+    return null;
   }
-}
-
-class _PhoneCardRow extends StatelessWidget {
-  const _PhoneCardRow({
-    required this.profile,
-    required this.l10n,
-    required this.dash,
-  });
-
-  final Profile profile;
-  final AppLocalizations l10n;
-  final String dash;
 
   Future<void> _openUri(
     BuildContext context,
@@ -348,81 +245,363 @@ class _PhoneCardRow extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final phone = profile.phoneNumber?.trim();
-    final hasPhone = phone != null && phone.isNotEmpty;
-    final primary = Theme.of(context).colorScheme.primary;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final viewer = ref.watch(currentProfileProvider).valueOrNull;
+    final allAsync = ref.watch(allProfilesProvider);
+    final treeAsync = ref.watch(fullLineageTreeProvider);
+    final care = CareRatingTheme.colorFor(profile.careRating);
+    final relation = _relationPill(viewer);
+    final hasPhone = (profile.phoneNumber?.trim().isNotEmpty ?? false);
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.phone_android, size: 20, color: Colors.grey.shade600),
-          const SizedBox(width: 12),
-          Expanded(
+    final all = allAsync.valueOrNull ?? const <Profile>[];
+    final byId = {for (final p in all) p.id: p};
+    final gen = all.isEmpty
+        ? null
+        : generationsFromPatriarch(profile, all);
+
+    final tree = treeAsync.valueOrNull;
+    final node = tree == null ? null : findNodeInTree(tree, profile.id);
+    final childCount = node?.children.length ?? 0;
+    final descendantCount = node?.descendantCount ?? 0;
+
+    final nasabNames = <String>[];
+    if (all.isNotEmpty) {
+      final names = collectPatrilinealNames(profile, byId);
+      for (final n in names) {
+        nasabNames.add(lineageShortName(n));
+      }
+    } else {
+      nasabNames.add(lineageShortName(profile.fullName));
+    }
+
+    final statusKey = MemberStatusTheme.labelKey(
+      demographic: profile.demographic,
+      maritalStatus: profile.maritalStatus,
+    );
+    final chips = <String>[
+      if (statusKey != null) l10n.t(statusKey),
+      if (profile.city?.trim().isNotEmpty == true) profile.city!.trim(),
+      if (profile.occupation?.trim().isNotEmpty == true)
+        profile.occupation!.trim(),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _Avatar(profile: profile, size: 64, initials: _initials(profile.fullName)),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    profile.fullName,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: BrandColors.ink,
+                    ),
+                  ),
+                  if (relation != null) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      height: 26,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                        color: BrandColors.gold.withValues(alpha: 0.28),
+                        borderRadius: BorderRadius.circular(13),
+                      ),
+                      child: Text(
+                        relation,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: BrandColors.onGold,
+                          height: 1.9,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (sheetMode && onClose != null)
+              Material(
+                color: BrandColors.linen,
+                shape: const CircleBorder(),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: onClose,
+                  child: const SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: Icon(Icons.close_rounded, color: BrandColors.ink),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        CustomPaint(
+          painter: _DashedRRectPainter(color: BrandColors.border),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  l10n.t('mobile'),
-                  style: Theme.of(context).textTheme.labelMedium,
-                ),
-                const SizedBox(height: 2),
-                if (!hasPhone)
-                  Text(
-                    dash,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          fontWeight: FontWeight.w500,
-                        ),
-                  )
-                  else
-                  Row(
-                    children: [
-                      Expanded(
-                        child: InkWell(
-                          onTap: () => _call(context),
-                          borderRadius: BorderRadius.circular(4),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 2),
-                            child: Text(
-                              displayPhone(phone),
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodyLarge
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                    color: primary,
-                                    decoration: TextDecoration.underline,
-                                    decorationColor: primary,
-                                  ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: l10n.t('call'),
-                        onPressed: () => _call(context),
-                        visualDensity: VisualDensity.compact,
-                        icon: SvgPicture.asset(
-                          'assets/icons/call.svg',
-                          width: 28,
-                          height: 28,
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: l10n.t('whatsapp'),
-                        onPressed: () => _whatsApp(context),
-                        visualDensity: VisualDensity.compact,
-                        icon: SvgPicture.asset(
-                          'assets/icons/whatsapp.svg',
-                          width: 28,
-                          height: 28,
-                        ),
-                      ),
-                    ],
+                  l10n.t('member_card_lineage'),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.06 * 12,
+                    color: BrandColors.muted,
                   ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  nasabNames.join(' · '),
+                  style: const TextStyle(
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w700,
+                    height: 1.45,
+                    color: BrandColors.teal,
+                  ),
+                ),
               ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: WrapAlignment.start,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            for (final chip in chips)
+              Container(
+                height: 26,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: BrandColors.linen,
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: Text(
+                  chip,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: BrandColors.ink,
+                  ),
+                ),
+              ),
+            Container(
+              height: 26,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: care.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(13),
+                border: Border.all(color: care.withValues(alpha: 0.35)),
+              ),
+              child: Text(
+                l10n.t(CareRatingTheme.labelKey(profile.careRating)),
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: care,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _StatTile(
+                value: '$childCount',
+                label: l10n.t('member_card_stat_children'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _StatTile(
+                value: '$descendantCount',
+                label: l10n.t('member_card_stat_descendants'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _StatTile(
+                value: gen == null ? '—' : 'J$gen',
+                label: l10n.t('member_card_stat_generation'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(
+              child: _SoftActionButton(
+                label: l10n.t('call'),
+                onTap: hasPhone ? () => _call(context) : null,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SvgPicture.asset(
+                      'assets/icons/call.svg',
+                      width: 20,
+                      height: 20,
+                      colorFilter: const ColorFilter.mode(
+                        BrandColors.teal,
+                        BlendMode.srcIn,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      l10n.t('call'),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: BrandColors.teal,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _SoftActionButton(
+                label: l10n.t('whatsapp'),
+                onTap: hasPhone ? () => _whatsApp(context) : null,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SvgPicture.asset(
+                      'assets/icons/whatsapp.svg',
+                      width: 20,
+                      height: 20,
+                      colorFilter: const ColorFilter.mode(
+                        BrandColors.teal,
+                        BlendMode.srcIn,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      l10n.t('whatsapp'),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: BrandColors.teal,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (onViewBranch != null) ...[
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 52,
+            child: FilledButton.icon(
+              onPressed: onViewBranch,
+              style: FilledButton.styleFrom(
+                backgroundColor: BrandColors.teal,
+                foregroundColor: BrandColors.linen,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              icon: const Icon(Icons.account_tree_outlined, size: 20),
+              label: Text(
+                l10n.t('member_card_view_branch'),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _DashedRRectPainter extends CustomPainter {
+  _DashedRRectPainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1.2
+      ..style = PaintingStyle.stroke;
+    final rrect = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      const Radius.circular(14),
+    );
+    final path = Path()..addRRect(rrect);
+    const dash = 5.0;
+    const gap = 4.0;
+    for (final metric in path.computeMetrics()) {
+      var dist = 0.0;
+      while (dist < metric.length) {
+        final next = (dist + dash).clamp(0.0, metric.length);
+        canvas.drawPath(metric.extractPath(dist, next), paint);
+        dist = next + gap;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DashedRRectPainter oldDelegate) =>
+      oldDelegate.color != color;
+}
+
+class _StatTile extends StatelessWidget {
+  const _StatTile({required this.value, required this.label});
+
+  final String value;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: BrandColors.linen,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: BrandColors.teal,
+            ),
+          ),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: BrandColors.muted,
             ),
           ),
         ],
@@ -431,48 +610,118 @@ class _PhoneCardRow extends StatelessWidget {
   }
 }
 
-class _CardRow extends StatelessWidget {
-  const _CardRow({
-    required this.icon,
+class _SoftActionButton extends StatelessWidget {
+  const _SoftActionButton({
     required this.label,
-    required this.value,
-    this.valueColor,
-    this.valueWidget,
+    required this.child,
+    required this.onTap,
   });
 
-  final IconData icon;
   final String label;
-  final String value;
-  final Color? valueColor;
-  final Widget? valueWidget;
+  final Widget child;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return Material(
+      color: onTap == null
+          ? BrandColors.mint.withValues(alpha: 0.5)
+          : BrandColors.mint,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: SizedBox(
+          height: 52,
+          child: Center(child: child),
+        ),
+      ),
+    );
+  }
+}
+
+class _Avatar extends StatelessWidget {
+  const _Avatar({
+    required this.profile,
+    required this.initials,
+    this.size = 64,
+  });
+
+  final Profile profile;
+  final String initials;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final care = CareRatingTheme.colorFor(profile.careRating);
+
+    Widget face;
+    if (profile.avatarUrl != null && profile.avatarUrl!.isNotEmpty) {
+      face = ClipOval(
+        child: Image.network(
+          profile.avatarUrl!,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => _InitialsFace(
+            initials: initials,
+            size: size,
+          ),
+        ),
+      );
+    } else {
+      face = _InitialsFace(initials: initials, size: size);
+    }
+
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Stack(
+        clipBehavior: Clip.none,
         children: [
-          Icon(icon, size: 20, color: Colors.grey.shade600),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: Theme.of(context).textTheme.labelMedium),
-                const SizedBox(height: 2),
-                valueWidget ??
-                    Text(
-                      value,
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            fontWeight: FontWeight.w500,
-                            color: valueColor,
-                          ),
-                    ),
-              ],
+          face,
+          Positioned(
+            right: -1,
+            bottom: -1,
+            child: Container(
+              width: 17,
+              height: 17,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: care,
+                border: Border.all(color: BrandColors.surface, width: 3),
+              ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _InitialsFace extends StatelessWidget {
+  const _InitialsFace({required this.initials, required this.size});
+
+  final String initials;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        color: BrandColors.mint,
+      ),
+      child: Text(
+        initials,
+        style: TextStyle(
+          fontSize: size * 0.34,
+          fontWeight: FontWeight.w800,
+          color: BrandColors.teal,
+        ),
       ),
     );
   }
@@ -714,7 +963,21 @@ class _AdminProfileEditFormState extends ConsumerState<_AdminProfileEditForm> {
                       radius: 44,
                       backgroundImage: MemoryImage(_imageBytes!),
                     )
-                  : _Avatar(profile: widget.profile, size: 88),
+                  : _Avatar(
+                      profile: widget.profile,
+                      size: 88,
+                      initials: () {
+                        final parts = widget.profile.fullName
+                            .trim()
+                            .split(RegExp(r'\s+'));
+                        if (parts.isEmpty || parts.first.isEmpty) return '?';
+                        if (parts.length == 1) {
+                          return parts.first[0].toUpperCase();
+                        }
+                        return '${parts.first[0]}${parts.last[0]}'
+                            .toUpperCase();
+                      }(),
+                    ),
               Positioned(
                 bottom: 0,
                 right: 0,

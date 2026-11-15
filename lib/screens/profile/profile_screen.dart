@@ -49,7 +49,12 @@ class ProfileScreen extends ConsumerWidget {
         }
 
         final body = ListView(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.fromLTRB(
+            24,
+            showAppBar ? 24 : MediaQuery.paddingOf(context).top + 16,
+            24,
+            40,
+          ),
           children: [
             if (!showAppBar) ...[
               Text(
@@ -98,6 +103,7 @@ class ProfileScreen extends ConsumerWidget {
               icon: const Icon(Icons.logout),
               label: Text(l10n.t('sign_out')),
             ),
+            const SizedBox(height: 24),
           ],
         );
 

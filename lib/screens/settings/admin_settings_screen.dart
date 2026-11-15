@@ -24,7 +24,7 @@ class _AdminSettingsScreenState extends ConsumerState<AdminSettingsScreen> {
   final _ussdCtrl = TextEditingController();
   final _edahabMerchantCtrl = TextEditingController();
   final _edahabUssdCtrl = TextEditingController();
-  String _language = 'en';
+  String _language = 'so';
   FamilyTreeViewMode _familyTreeView = FamilyTreeViewMode.chart;
   bool _saving = false;
   bool _resetting = false;

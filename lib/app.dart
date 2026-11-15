@@ -195,71 +195,250 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     );
   }
 
+  void _setLocale(String code) {
+    ref.read(localeProvider.notifier).state = code;
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10nAsync = ref.watch(localizationsProvider);
+    final locale = ref.watch(localeProvider);
 
     return l10nAsync.when(
-      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
-      error: (_, __) => const Scaffold(body: Center(child: Text('Failed to load translations'))),
+      loading: () => const Scaffold(
+        backgroundColor: BrandColors.teal,
+        body: Center(
+          child: CircularProgressIndicator(color: Colors.white),
+        ),
+      ),
+      error: (_, _) => const Scaffold(
+        backgroundColor: BrandColors.teal,
+        body: Center(child: Text('Failed to load translations')),
+      ),
       data: (l10n) => Scaffold(
+        backgroundColor: BrandColors.teal,
         body: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-              const SizedBox(height: 48),
-              const AppLogo(height: 140),
-              const SizedBox(height: 16),
-              Text(
-                l10n.t('login_subtitle'),
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.grey.shade600,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(28, 48, 28, 24),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight - 24),
+                  child: Column(
+                    children: [
+                      const AppLogo(
+                        height: 120,
+                        variant: AppLogoVariant.stackedReversed,
                       ),
-                ),
-                const SizedBox(height: 40),
-                TextField(
-                  controller: _phoneCtrl,
-                  keyboardType: TextInputType.phone,
-                  decoration: InputDecoration(
-                    labelText: l10n.t('mobile'),
-                    hintText: l10n.t('phone_hint'),
-                    helperText: l10n.t('login_phone_hint'),
-                    helperMaxLines: 2,
+                      const SizedBox(height: 16),
+                      Container(
+                        width: 32,
+                        height: 2,
+                        color: BrandColors.gold,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        l10n.t('login_tagline'),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w500,
+                          color: BrandColors.onTealMuted,
+                        ),
+                      ),
+                      SizedBox(height: constraints.maxHeight > 700 ? 48 : 28),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: BrandColors.linen,
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                              l10n.t('welcome'),
+                              style: const TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.w800,
+                                color: BrandColors.teal,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              l10n.t('login_subtitle'),
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w500,
+                                color: BrandColors.muted,
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                            TextField(
+                              controller: _phoneCtrl,
+                              keyboardType: TextInputType.phone,
+                              textInputAction: TextInputAction.next,
+                              style: const TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w600,
+                                color: BrandColors.ink,
+                              ),
+                              decoration: InputDecoration(
+                                labelText: l10n.t('mobile'),
+                                hintText: l10n.t('phone_hint'),
+                                helperText: l10n.t('login_phone_hint'),
+                                helperMaxLines: 2,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: _passwordCtrl,
+                              obscureText: true,
+                              textInputAction: TextInputAction.done,
+                              onSubmitted: (_) {
+                                if (!_loading) _submit(l10n);
+                              },
+                              style: const TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w600,
+                                color: BrandColors.ink,
+                              ),
+                              decoration: InputDecoration(
+                                labelText: l10n.t('password'),
+                              ),
+                            ),
+                            if (_error != null) ...[
+                              const SizedBox(height: 12),
+                              Text(
+                                _error!,
+                                style: const TextStyle(
+                                  color: BrandColors.urgent,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 20),
+                            FilledButton(
+                              onPressed: _loading ? null : () => _submit(l10n),
+                              child: _loading
+                                  ? const SizedBox(
+                                      height: 22,
+                                      width: 22,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : Text(l10n.t('login')),
+                            ),
+                            const SizedBox(height: 14),
+                            Text.rich(
+                              TextSpan(
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  color: BrandColors.muted,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                children: [
+                                  TextSpan(text: '${l10n.t('dont_have_account')} '),
+                                  WidgetSpan(
+                                    alignment: PlaceholderAlignment.baseline,
+                                    baseline: TextBaseline.alphabetic,
+                                    child: GestureDetector(
+                                      onTap: _openRegister,
+                                      child: Text(
+                                        l10n.t('signup'),
+                                        style: const TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w700,
+                                          color: BrandColors.tealMid,
+                                          decoration: TextDecoration.underline,
+                                          decorationColor: BrandColors.tealMid,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _LanguageSwitch(
+                        locale: locale,
+                        l10n: l10n,
+                        onSelect: _setLocale,
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _passwordCtrl,
-                  obscureText: true,
-                  decoration: InputDecoration(labelText: l10n.t('password')),
-                ),
-                if (_error != null) ...[
-                  const SizedBox(height: 12),
-                  Text(_error!, style: TextStyle(color: Colors.red.shade700)),
-                ],
-                const SizedBox(height: 24),
-                FilledButton(
-                  onPressed: _loading ? null : () => _submit(l10n),
-                  child: _loading
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Text(l10n.t('login')),
-                ),
-                TextButton(
-                  onPressed: _openRegister,
-                  child: Text(l10n.t('dont_have_account')),
-                ),
-              ],
-            ),
+              );
+            },
           ),
         ),
       ),
+    );
+  }
+}
+
+class _LanguageSwitch extends StatelessWidget {
+  const _LanguageSwitch({
+    required this.locale,
+    required this.l10n,
+    required this.onSelect,
+  });
+
+  final String locale;
+  final AppLocalizations l10n;
+  final ValueChanged<String> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final isSo = locale == 'so';
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        GestureDetector(
+          onTap: () => onSelect('en'),
+          behavior: HitTestBehavior.opaque,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+            child: Text(
+              l10n.t('english'),
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: isSo ? FontWeight.w500 : FontWeight.w700,
+                color: isSo ? BrandColors.onTealMuted : BrandColors.linen,
+              ),
+            ),
+          ),
+        ),
+        Text(
+          '·',
+          style: TextStyle(
+            fontSize: 13,
+            color: BrandColors.onTealMuted.withValues(alpha: 0.8),
+          ),
+        ),
+        GestureDetector(
+          onTap: () => onSelect('so'),
+          behavior: HitTestBehavior.opaque,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+            child: Text(
+              l10n.t('somali'),
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: isSo ? FontWeight.w700 : FontWeight.w500,
+                color: isSo ? BrandColors.linen : BrandColors.onTealMuted,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -18,7 +18,7 @@ class AppLocalizations {
   }
 }
 
-final localeProvider = StateProvider<String>((ref) => 'en');
+final localeProvider = StateProvider<String>((ref) => 'so');
 
 final localizationsProvider = FutureProvider<AppLocalizations>((ref) async {
   final locale = ref.watch(localeProvider);

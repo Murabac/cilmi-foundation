@@ -4,107 +4,204 @@ import 'package:intl/intl.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../models/models.dart';
+import '../../models/payment_report.dart';
 import '../../providers/providers.dart';
 import '../../services/services.dart';
+import '../../theme/app_theme.dart';
 import '../../utils/branch_filter.dart';
 import '../../utils/lineage_name.dart';
 import '../../utils/profile_sort.dart';
 import '../../widgets/branch_father_filters.dart';
 import '../../widgets/widgets.dart';
+import 'payment_report_screen.dart';
+import 'verification_queue_screen.dart';
 
 class TreasuryScreen extends ConsumerWidget {
   const TreasuryScreen({super.key});
+
+  String _roleLabel(AppLocalizations l10n, UserRole? role) {
+    return switch (role) {
+      UserRole.superAdmin => l10n.t('role_super_admin'),
+      UserRole.treasury => l10n.t('role_treasury'),
+      UserRole.manager => l10n.t('role_manager'),
+      _ => l10n.t('role_family_member'),
+    };
+  }
+
+  String _money(double v) {
+    if (v == v.roundToDouble()) return '\$${v.toStringAsFixed(0)}';
+    return '\$${v.toStringAsFixed(2)}';
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10nAsync = ref.watch(localizationsProvider);
     final balanceAsync = ref.watch(poolBalanceProvider);
     final ledgerAsync = ref.watch(auditLedgerProvider);
+    final pendingAsync = ref.watch(pendingContributionsProvider);
+    final reportAsync = ref.watch(monthlyPaymentReportProvider);
+    final profile = ref.watch(currentProfileProvider).valueOrNull;
+    final canPayments = profile?.role.canManagePayments ?? false;
+    final canTreasury = profile?.role.canManageTreasury ?? false;
+    final localeCode = ref.watch(localeProvider);
 
     return l10nAsync.when(
       loading: () => const Scaffold(body: LoadingView()),
       error: (_, _) => const Scaffold(body: ErrorView(message: 'Error')),
-      data: (l10n) => Scaffold(
-        appBar: AppBar(
-          title: Text(l10n.t('treasury')),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.add_circle_outline),
-              tooltip: l10n.t('add_to_pool'),
-              onPressed: () => _openAddToPoolDialog(context, ref, l10n),
-            ),
-            IconButton(
-              icon: const Icon(Icons.volunteer_activism_outlined),
-              tooltip: l10n.t('disburse_aid'),
-              onPressed: () => _openDisburseDialog(context, ref, l10n),
-            ),
-          ],
-        ),
-        body: RefreshIndicator(
-          onRefresh: () async {
-            ref.invalidate(poolBalanceProvider);
-            ref.invalidate(auditLedgerProvider);
-          },
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              balanceAsync.when(
-                loading: () =>
-                    MetricCard(title: l10n.t('total_pool_balance'), value: '...'),
-                error: (_, _) =>
-                    MetricCard(title: l10n.t('total_pool_balance'), value: '—'),
-                data: (balance) => MetricCard(
-                  title: l10n.t('total_pool_balance'),
-                  value: '\$${balance.toStringAsFixed(2)}',
-                  icon: Icons.account_balance_wallet,
-                  color: const Color(0xFF059669),
+      data: (l10n) {
+        final now = DateTime.now();
+        final ledger = ledgerAsync.valueOrNull ?? const <LedgerEntry>[];
+        var inflowMonth = 0.0;
+        var outflowMonth = 0.0;
+        for (final e in ledger) {
+          if (e.date.year != now.year || e.date.month != now.month) continue;
+          if (e.isInflow) {
+            inflowMonth += e.amount;
+          } else {
+            outflowMonth += e.amount;
+          }
+        }
+
+        return Scaffold(
+          backgroundColor: BrandColors.linen,
+          body: RefreshIndicator(
+            color: BrandColors.teal,
+            onRefresh: () async {
+              ref.invalidate(poolBalanceProvider);
+              ref.invalidate(auditLedgerProvider);
+              ref.invalidate(pendingContributionsProvider);
+              ref.invalidate(monthlyPaymentReportProvider);
+            },
+            child: CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                SliverToBoxAdapter(
+                  child: _TreasuryHeader(
+                    title: l10n.t('treasury'),
+                    roleLabel: _roleLabel(l10n, profile?.role),
+                    balanceLabel: l10n.t('total_pool_balance'),
+                    balance: balanceAsync.valueOrNull,
+                    inflowLabel: l10n.t('treasury_inflow_month'),
+                    outflowLabel: l10n.t('treasury_outflow_month'),
+                    inflow: inflowMonth,
+                    outflow: outflowMonth,
+                    money: _money,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 24),
-              Text(
-                l10n.t('audit_ledger'),
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 8),
-              ledgerAsync.when(
-                loading: () => LoadingView(message: l10n.t('loading')),
-                error: (_, _) => ErrorView(message: l10n.t('error_generic')),
-                data: (entries) {
-                  if (entries.isEmpty) {
-                    return Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Center(child: Text(l10n.t('no_data'))),
-                      ),
-                    );
-                  }
-
-                  final isSuperAdmin = ref
-                          .watch(currentProfileProvider)
-                          .valueOrNull
-                          ?.role
-                          .isSuperAdmin ??
-                      false;
-
-                  return Column(
-                    children: entries
-                        .map(
-                          (e) => _LedgerTile(
-                            entry: e,
-                            l10n: l10n,
-                            canDelete: isSuperAdmin && e.canDelete,
-                            onDelete: () =>
-                                _deleteLedgerEntry(context, ref, l10n, e),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+                  sliver: SliverList(
+                    delegate: SliverChildListDelegate([
+                      if (canTreasury)
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _SoftAction(
+                                icon: Icons.add_rounded,
+                                label: l10n.t('add_to_pool'),
+                                onTap: () =>
+                                    _openAddToPoolDialog(context, ref, l10n),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _SoftAction(
+                                icon: Icons.favorite_border_rounded,
+                                label: l10n.t('disburse_aid'),
+                                onTap: () =>
+                                    _openDisburseDialog(context, ref, l10n),
+                              ),
+                            ),
+                          ],
+                        ),
+                      if (canPayments) ...[
+                        const SizedBox(height: 14),
+                        _VerificationPreviewCard(
+                          l10n: l10n,
+                          localeCode: localeCode,
+                          pendingAsync: pendingAsync,
+                          verifierId: profile?.id,
+                          money: _money,
+                          onSeeAll: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const VerificationQueueScreen(),
+                            ),
                           ),
-                        )
-                        .toList(),
-                  );
-                },
-              ),
-            ],
+                        ),
+                        const SizedBox(height: 14),
+                        _PaymentReportSummaryCard(
+                          l10n: l10n,
+                          reportAsync: reportAsync,
+                          onSeeAll: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const PaymentReportScreen(),
+                            ),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 18),
+                      Text(
+                        l10n.t('audit_ledger'),
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          color: BrandColors.ink,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      ledgerAsync.when(
+                        loading: () =>
+                            LoadingView(message: l10n.t('loading')),
+                        error: (_, _) =>
+                            ErrorView(message: l10n.t('error_generic')),
+                        data: (entries) {
+                          if (entries.isEmpty) {
+                            return Container(
+                              padding: const EdgeInsets.all(24),
+                              decoration: BoxDecoration(
+                                color: BrandColors.surface,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: BrandColors.border),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  l10n.t('no_data'),
+                                  style: const TextStyle(
+                                    color: BrandColors.muted,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }
+                          final isSuperAdmin =
+                              profile?.role.isSuperAdmin ?? false;
+                          return Column(
+                            children: entries
+                                .map(
+                                  (e) => _LedgerTile(
+                                    entry: e,
+                                    l10n: l10n,
+                                    canDelete: isSuperAdmin && e.canDelete,
+                                    onDelete: () => _deleteLedgerEntry(
+                                      context,
+                                      ref,
+                                      l10n,
+                                      e,
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                          );
+                        },
+                      ),
+                    ]),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -130,7 +227,7 @@ class TreasuryScreen extends ConsumerWidget {
             child: Text(l10n.t('cancel')),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            style: FilledButton.styleFrom(backgroundColor: BrandColors.urgent),
             onPressed: () => Navigator.pop(ctx, true),
             child: Text(l10n.t('delete')),
           ),
@@ -198,6 +295,741 @@ class TreasuryScreen extends ConsumerWidget {
       ref.invalidate(poolBalanceProvider);
       ref.invalidate(auditLedgerProvider);
     }
+  }
+}
+
+class _TreasuryHeader extends StatelessWidget {
+  const _TreasuryHeader({
+    required this.title,
+    required this.roleLabel,
+    required this.balanceLabel,
+    required this.balance,
+    required this.inflowLabel,
+    required this.outflowLabel,
+    required this.inflow,
+    required this.outflow,
+    required this.money,
+  });
+
+  final String title;
+  final String roleLabel;
+  final String balanceLabel;
+  final double? balance;
+  final String inflowLabel;
+  final String outflowLabel;
+  final double inflow;
+  final double outflow;
+  final String Function(double) money;
+
+  @override
+  Widget build(BuildContext context) {
+    final top = MediaQuery.paddingOf(context).top;
+    return Container(
+      width: double.infinity,
+      color: BrandColors.teal,
+      padding: EdgeInsets.fromLTRB(20, top + 12, 20, 22),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              IconButton(
+                onPressed: () => Navigator.maybePop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
+                color: BrandColors.linen,
+                style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+              ),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
+                    color: BrandColors.linen,
+                  ),
+                ),
+              ),
+              Container(
+                height: 26,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: BrandColors.gold,
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: Text(
+                  roleLabel,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: BrandColors.onGold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            balanceLabel,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: BrandColors.onTealMuted,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            balance == null ? '…' : money(balance!),
+            style: const TextStyle(
+              fontSize: 40,
+              fontWeight: FontWeight.w800,
+              color: BrandColors.linen,
+              height: 1.1,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _HeaderStat(
+                  icon: Icons.arrow_downward_rounded,
+                  iconColor: const Color(0xFF9FE0BC),
+                  label: inflowLabel,
+                  value: money(inflow),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _HeaderStat(
+                  icon: Icons.arrow_upward_rounded,
+                  iconColor: const Color(0xFFF4C7A1),
+                  label: outflowLabel,
+                  value: money(outflow),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeaderStat extends StatelessWidget {
+  const _HeaderStat({
+    required this.icon,
+    required this.iconColor,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: BrandColors.linen.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: iconColor),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    color: BrandColors.onTealMuted,
+                  ),
+                ),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: BrandColors.linen,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SoftAction extends StatelessWidget {
+  const _SoftAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: BrandColors.surface,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 50),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: BrandColors.border),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 18, color: BrandColors.teal),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w700,
+                    color: BrandColors.teal,
+                    height: 1.2,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _VerificationPreviewCard extends ConsumerWidget {
+  const _VerificationPreviewCard({
+    required this.l10n,
+    required this.localeCode,
+    required this.pendingAsync,
+    required this.verifierId,
+    required this.money,
+    required this.onSeeAll,
+  });
+
+  final AppLocalizations l10n;
+  final String localeCode;
+  final AsyncValue<List<Contribution>> pendingAsync;
+  final String? verifierId;
+  final String Function(double) money;
+  final VoidCallback onSeeAll;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final items = pendingAsync.valueOrNull ?? const <Contribution>[];
+    final preview = items.take(3).toList();
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 8),
+      decoration: BoxDecoration(
+        color: BrandColors.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: BrandColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  l10n.t('verification_queue'),
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: BrandColors.ink,
+                  ),
+                ),
+              ),
+              InkWell(
+                onTap: onSeeAll,
+                child: Container(
+                  height: 26,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: BrandColors.pendingBg,
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: Text(
+                    l10n
+                        .t('pending_count_badge')
+                        .replaceAll('{count}', '${items.length}'),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: BrandColors.pendingInk,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (pendingAsync.isLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (preview.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 18),
+              child: Text(
+                l10n.t('no_pending_payments'),
+                style: const TextStyle(color: BrandColors.muted),
+              ),
+            )
+          else
+            for (final c in preview) ...[
+              const Divider(height: 1, color: BrandColors.border),
+              _PendingPaymentRow(
+                contribution: c,
+                l10n: l10n,
+                localeCode: localeCode,
+                verifierId: verifierId,
+                money: money,
+              ),
+            ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PendingPaymentRow extends ConsumerStatefulWidget {
+  const _PendingPaymentRow({
+    required this.contribution,
+    required this.l10n,
+    required this.localeCode,
+    required this.verifierId,
+    required this.money,
+  });
+
+  final Contribution contribution;
+  final AppLocalizations l10n;
+  final String localeCode;
+  final String? verifierId;
+  final String Function(double) money;
+
+  @override
+  ConsumerState<_PendingPaymentRow> createState() => _PendingPaymentRowState();
+}
+
+class _PendingPaymentRowState extends ConsumerState<_PendingPaymentRow> {
+  var _busy = false;
+
+  String _initials(String name) {
+    final parts = name.trim().split(RegExp(r'\s+'));
+    if (parts.isEmpty || parts.first.isEmpty) return '?';
+    if (parts.length == 1) return parts.first[0].toUpperCase();
+    return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+  }
+
+  Future<void> _verify(bool approve) async {
+    final verifierId = widget.verifierId;
+    if (_busy || verifierId == null) return;
+    setState(() => _busy = true);
+    try {
+      await ref.read(contributionServiceProvider).verifyContribution(
+            contributionId: widget.contribution.id,
+            verifierId: verifierId,
+            approve: approve,
+          );
+      ref.invalidate(pendingContributionsProvider);
+      if (approve) {
+        ref.invalidate(poolBalanceProvider);
+        ref.invalidate(auditLedgerProvider);
+        ref.invalidate(monthlyPaymentReportProvider);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              approve
+                  ? widget.l10n.t('payment_marked_paid')
+                  : widget.l10n.t('rejected'),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString())),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.contribution;
+    final name = c.profileName ?? 'Member';
+    final month = DateFormat(
+      'MMMM',
+      widget.localeCode.startsWith('so') ? 'so' : 'en',
+    ).format(DateTime(c.billingYear, c.billingMonth));
+    final selfReported = c.transactionReference == 'submitted';
+    final detail = selfReported
+        ? widget.l10n.t('member_self_reported_payment')
+        : (c.transactionReference ?? '');
+    final amount = c.amountDue > 0 ? c.amountDue : c.amountPaid;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                alignment: Alignment.center,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: BrandColors.mint,
+                ),
+                child: Text(
+                  _initials(name),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: BrandColors.teal,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: BrandColors.ink,
+                      ),
+                    ),
+                    Text(
+                      detail.isEmpty ? month : '$month · $detail',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13.5,
+                        color: BrandColors.muted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                widget.money(amount),
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  color: BrandColors.ink,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 46,
+                  child: FilledButton.icon(
+                    onPressed: _busy || widget.verifierId == null
+                        ? null
+                        : () => _verify(true),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: BrandColors.teal,
+                      foregroundColor: BrandColors.linen,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    icon: _busy
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: BrandColors.linen,
+                            ),
+                          )
+                        : const Icon(Icons.check_rounded, size: 18),
+                    label: Text(widget.l10n.t('approve')),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SizedBox(
+                  height: 46,
+                  child: OutlinedButton.icon(
+                    onPressed: _busy || widget.verifierId == null
+                        ? null
+                        : () => _verify(false),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: BrandColors.urgent,
+                      side: const BorderSide(
+                        color: BrandColors.border,
+                        width: 1.5,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    icon: const Icon(Icons.close_rounded, size: 18),
+                    label: Text(widget.l10n.t('reject')),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PaymentReportSummaryCard extends StatelessWidget {
+  const _PaymentReportSummaryCard({
+    required this.l10n,
+    required this.reportAsync,
+    required this.onSeeAll,
+  });
+
+  final AppLocalizations l10n;
+  final AsyncValue<MonthlyPaymentReport> reportAsync;
+  final VoidCallback onSeeAll;
+
+  @override
+  Widget build(BuildContext context) {
+    final report = reportAsync.valueOrNull;
+    final paid = report?.paidCount ?? 0;
+    final pending = report?.pendingCount ?? 0;
+    final unpaid = report?.unpaidCount ?? 0;
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: BrandColors.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: BrandColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  l10n.t('payment_report'),
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: BrandColors.ink,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: onSeeAll,
+                child: Text(
+                  l10n.t('view_all'),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: BrandColors.tealMid,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(5),
+            child: SizedBox(
+              height: 10,
+              child: Row(
+                children: [
+                  if (paid > 0)
+                    Expanded(
+                      flex: paid,
+                      child: const ColoredBox(color: BrandColors.tealMid),
+                    ),
+                  if (pending > 0)
+                    Expanded(
+                      flex: pending,
+                      child: const ColoredBox(color: BrandColors.gold),
+                    ),
+                  if (unpaid > 0)
+                    Expanded(
+                      flex: unpaid,
+                      child: const ColoredBox(color: BrandColors.linen),
+                    ),
+                  if (paid + pending + unpaid == 0)
+                    const Expanded(
+                      child: ColoredBox(color: BrandColors.border),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 14,
+            runSpacing: 6,
+            children: [
+              Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: '$paid ',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: BrandColors.ink,
+                      ),
+                    ),
+                    TextSpan(
+                      text: l10n.t('report_paid_label'),
+                      style: const TextStyle(color: BrandColors.muted),
+                    ),
+                  ],
+                ),
+                style: const TextStyle(fontSize: 13.5),
+              ),
+              Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: '$pending ',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: BrandColors.ink,
+                      ),
+                    ),
+                    TextSpan(
+                      text: l10n.t('report_pending_label'),
+                      style: const TextStyle(color: BrandColors.muted),
+                    ),
+                  ],
+                ),
+                style: const TextStyle(fontSize: 13.5),
+              ),
+              Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: '$unpaid ',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: BrandColors.ink,
+                      ),
+                    ),
+                    TextSpan(
+                      text: l10n.t('report_unpaid_label'),
+                      style: const TextStyle(color: BrandColors.muted),
+                    ),
+                  ],
+                ),
+                style: const TextStyle(fontSize: 13.5),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LedgerTile extends StatelessWidget {
+  const _LedgerTile({
+    required this.entry,
+    required this.l10n,
+    this.canDelete = false,
+    this.onDelete,
+  });
+
+  final LedgerEntry entry;
+  final AppLocalizations l10n;
+  final bool canDelete;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final dateStr = DateFormat.yMMMd().format(entry.date);
+    final typeLabel = entry.isInflow ? l10n.t('inflow') : l10n.t('outflow');
+    final color = entry.isInflow ? BrandColors.paid : BrandColors.pending;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: BrandColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: BrandColors.border),
+      ),
+      child: ListTile(
+        leading: Icon(
+          entry.isInflow ? Icons.arrow_downward : Icons.arrow_upward,
+          color: color,
+        ),
+        title: Text(
+          '$dateStr — $typeLabel',
+          style: const TextStyle(
+            fontWeight: FontWeight.w700,
+            color: BrandColors.ink,
+          ),
+        ),
+        subtitle: Text(
+          entry.isInflow && entry.verifiedByName != null
+              ? '${entry.description} (${l10n.t('verified_by')} ${entry.verifiedByName})'
+              : entry.description,
+          style: const TextStyle(color: BrandColors.muted),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '\$${entry.amount.toStringAsFixed(2)}',
+              style: TextStyle(fontWeight: FontWeight.bold, color: color),
+            ),
+            if (canDelete && onDelete != null)
+              IconButton(
+                tooltip: l10n.t('delete'),
+                icon: const Icon(Icons.delete_outline, color: BrandColors.urgent),
+                onPressed: onDelete,
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -612,54 +1444,3 @@ class _DisburseAidDialogState extends ConsumerState<_DisburseAidDialog> {
   }
 }
 
-class _LedgerTile extends StatelessWidget {
-  const _LedgerTile({
-    required this.entry,
-    required this.l10n,
-    this.canDelete = false,
-    this.onDelete,
-  });
-
-  final LedgerEntry entry;
-  final AppLocalizations l10n;
-  final bool canDelete;
-  final VoidCallback? onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    final dateStr = DateFormat.yMMMd().format(entry.date);
-    final typeLabel = entry.isInflow ? l10n.t('inflow') : l10n.t('outflow');
-    final color = entry.isInflow ? Colors.green : Colors.orange;
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: Icon(
-          entry.isInflow ? Icons.arrow_downward : Icons.arrow_upward,
-          color: color,
-        ),
-        title: Text('$dateStr — $typeLabel'),
-        subtitle: Text(
-          entry.isInflow && entry.verifiedByName != null
-              ? '${entry.description} (${l10n.t('verified_by')} ${entry.verifiedByName})'
-              : entry.description,
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              '\$${entry.amount.toStringAsFixed(2)}',
-              style: TextStyle(fontWeight: FontWeight.bold, color: color),
-            ),
-            if (canDelete && onDelete != null)
-              IconButton(
-                tooltip: l10n.t('delete'),
-                icon: Icon(Icons.delete_outline, color: Colors.red.shade700),
-                onPressed: onDelete,
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}

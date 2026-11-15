@@ -7,6 +7,7 @@ import '../../l10n/app_localizations.dart';
 import '../../models/models.dart';
 import '../../models/payment_report.dart';
 import '../../providers/providers.dart';
+import '../../theme/app_theme.dart';
 import '../../utils/branch_filter.dart';
 import '../../utils/lineage_name.dart';
 import '../../utils/phone_utils.dart';
@@ -403,7 +404,8 @@ class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
                     const SizedBox(height: 12),
                     FilledButton.icon(
                       style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF1E7A4C),
+                        backgroundColor: BrandColors.teal,
+                        foregroundColor: BrandColors.linen,
                         minimumSize: const Size.fromHeight(52),
                       ),
                       onPressed: () => Navigator.of(context).push(
@@ -543,9 +545,16 @@ class _PaymentReportScreenState extends ConsumerState<PaymentReportScreen> {
             ),
           );
 
-        if (!widget.showAppBar) return body;
+        if (!widget.showAppBar) {
+          return ColoredBox(color: BrandColors.linen, child: body);
+        }
         return Scaffold(
-          appBar: AppBar(title: Text(l10n.t('payment_report'))),
+          backgroundColor: BrandColors.linen,
+          appBar: AppBar(
+            title: Text(l10n.t('payment_report')),
+            backgroundColor: BrandColors.teal,
+            foregroundColor: BrandColors.linen,
+          ),
           body: body,
         );
       },

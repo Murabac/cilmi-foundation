@@ -14,7 +14,7 @@ Color _statusAccent(Profile profile) =>
       demographic: profile.demographic,
       maritalStatus: profile.maritalStatus,
     ) ??
-    Colors.grey.shade400;
+    BrandColors.muted;
 
 /// Care rating + life-status dots shown together (does not replace either).
 class _CareAndStatusDots extends StatelessWidget {
@@ -169,7 +169,7 @@ class _FamilyTreeListViewState extends State<FamilyTreeListView> {
           l10n.t('full_tree_hint'),
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Colors.grey.shade600,
+                color: BrandColors.muted,
               ),
         ),
         const SizedBox(height: 20),
@@ -200,20 +200,20 @@ class _FamilyTreeListViewState extends State<FamilyTreeListView> {
                 .t('search_results')
                 .replaceAll('{count}', '$resultCount'),
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Colors.grey.shade600,
+                  color: BrandColors.muted,
                 ),
           ),
         ],
         const SizedBox(height: 16),
         Center(
-          child: Icon(Icons.arrow_downward, color: Colors.grey.shade400),
+          child: const Icon(Icons.arrow_downward, color: BrandColors.muted),
         ),
         const SizedBox(height: 8),
         Text(
           l10n.t('tap_name_for_card'),
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: Colors.grey.shade600,
+                color: BrandColors.muted,
               ),
         ),
         const SizedBox(height: 12),
@@ -282,7 +282,7 @@ class _PatriarchCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      color: Theme.of(context).colorScheme.primaryContainer,
+      color: BrandColors.mint,
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -290,7 +290,7 @@ class _PatriarchCard extends StatelessWidget {
             Text(
               l10n.t('patriarch'),
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: Theme.of(context).colorScheme.primary,
+                    color: BrandColors.teal,
                     fontWeight: FontWeight.w600,
                   ),
             ),
@@ -378,7 +378,7 @@ class _SonBranch extends StatelessWidget {
                             style: Theme.of(context)
                                 .textTheme
                                 .labelSmall
-                                ?.copyWith(color: Colors.grey.shade600),
+                                ?.copyWith(color: BrandColors.muted),
                           ),
                           Text(
                             node.profile.fullName,
@@ -540,10 +540,7 @@ class _ExpandableDescendant extends StatelessWidget {
         node.children.every(
           (c) => showsAsLeafChip(c, depth + 1, parent: node.profile),
         );
-    final scheme = Theme.of(context).colorScheme;
-    final nestFill = scheme.surfaceContainerHighest.withValues(
-      alpha: depth == 0 ? 0.35 : 0.55,
-    );
+    final nestFill = depth == 0 ? BrandColors.mint : BrandColors.linen;
 
     return Padding(
       padding: EdgeInsets.only(
@@ -555,7 +552,7 @@ class _ExpandableDescendant extends StatelessWidget {
         children: [
           Material(
             color: nameMatches && searchQuery.isNotEmpty
-                ? scheme.primaryContainer.withValues(alpha: 0.55)
+                ? BrandColors.gold.withValues(alpha: 0.22)
                 : nestFill,
             borderRadius: BorderRadius.circular(12),
             child: InkWell(
@@ -582,16 +579,16 @@ class _ExpandableDescendant extends StatelessWidget {
                           expanded
                               ? Icons.expand_less
                               : Icons.expand_more,
-                          color: scheme.primary,
+                          color: BrandColors.teal,
                         ),
                       )
                     else
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 12),
                         child: Icon(
                           Icons.subdirectory_arrow_right,
                           size: 20,
-                          color: Colors.grey.shade500,
+                          color: BrandColors.muted,
                         ),
                       ),
                     Expanded(
@@ -604,6 +601,7 @@ class _ExpandableDescendant extends StatelessWidget {
                               fontWeight: FontWeight.w700,
                               fontSize: depth == 0 ? 16 : 15,
                               height: 1.25,
+                              color: BrandColors.ink,
                             ),
                           ),
                           const SizedBox(height: 6),
@@ -622,15 +620,15 @@ class _ExpandableDescendant extends StatelessWidget {
                           vertical: 4,
                         ),
                         decoration: BoxDecoration(
-                          color: scheme.primary.withValues(alpha: 0.1),
+                          color: BrandColors.teal.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: Text(
                           '$childCount',
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontWeight: FontWeight.w600,
                             fontSize: 12,
-                            color: scheme.primary,
+                            color: BrandColors.teal,
                           ),
                         ),
                       ),
@@ -644,11 +642,11 @@ class _ExpandableDescendant extends StatelessWidget {
               margin: const EdgeInsets.only(top: 8, left: 8),
               padding: const EdgeInsets.fromLTRB(12, 12, 8, 8),
               decoration: BoxDecoration(
-                color: scheme.surface.withValues(alpha: 0.65),
+                color: BrandColors.surface,
                 borderRadius: BorderRadius.circular(12),
                 border: Border(
                   left: BorderSide(
-                    color: scheme.outlineVariant,
+                    color: BrandColors.border,
                     width: 2,
                   ),
                 ),
@@ -661,7 +659,7 @@ class _ExpandableDescendant extends StatelessWidget {
                         ? l10n.t('grandchildren')
                         : l10n.t('children'),
                     style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                          color: Colors.grey.shade700,
+                          color: BrandColors.muted,
                           fontWeight: FontWeight.w600,
                           letterSpacing: 0.2,
                         ),
@@ -712,13 +710,11 @@ class _LeafChip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
         decoration: BoxDecoration(
           color: highlighted
-              ? Theme.of(context).colorScheme.primaryContainer
+              ? BrandColors.mint
               : careColor.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(22),
           border: Border.all(
-            color: highlighted
-                ? Theme.of(context).colorScheme.primary
-                : careColor.withValues(alpha: 0.5),
+            color: highlighted ? BrandColors.teal : careColor.withValues(alpha: 0.5),
             width: highlighted ? 2 : 1.2,
           ),
         ),
@@ -747,6 +743,7 @@ class _LeafChip extends StatelessWidget {
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
                 height: 1.2,
+                color: BrandColors.ink,
               ),
             ),
           ],

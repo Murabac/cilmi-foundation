@@ -70,8 +70,9 @@ These were built and tested recently. Restyle around them; do not change their l
 
 ## Current status
 
-- Done: security migration 037, payers + status migration 038 + payer seed, new features above, Step 5 (new logo, launcher icons, splash), Gradle 9 upgrade.
-- Next: Step 6 onward (below).
+- Done: Steps 5–15 redesign (teal/gold theme, floating nav, login/home/tree/member card/give/admin, Somali default, version 1.1.0).
+- Migrations 001–038 live; run `039_somali_default_language.sql` in Supabase SQL Editor if not applied yet.
+- Next: install the 1.1.0 release build on a phone and ship.
 
 ## Redesign plan (steps)
 

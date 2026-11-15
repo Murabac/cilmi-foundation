@@ -38,11 +38,11 @@ class VerificationQueueScreen extends ConsumerWidget {
 
         if (!isSuperAdmin) {
           return Scaffold(
-            backgroundColor: BrandColors.cream,
+            backgroundColor: BrandColors.linen,
             appBar: AppBar(
               title: Text(l10n.t('verification_queue')),
-              backgroundColor: BrandColors.navy,
-              foregroundColor: Colors.white,
+              backgroundColor: BrandColors.teal,
+              foregroundColor: BrandColors.linen,
             ),
             body: _PaymentVerificationTab(l10n: l10n),
           );
@@ -51,11 +51,11 @@ class VerificationQueueScreen extends ConsumerWidget {
         return DefaultTabController(
           length: 2,
           child: Scaffold(
-            backgroundColor: BrandColors.cream,
+            backgroundColor: BrandColors.linen,
             appBar: AppBar(
               title: Text(l10n.t('verification_queue')),
-              backgroundColor: BrandColors.navy,
-              foregroundColor: Colors.white,
+              backgroundColor: BrandColors.teal,
+              foregroundColor: BrandColors.linen,
               bottom: TabBar(
                 indicatorColor: BrandColors.gold,
                 indicatorWeight: 3,
@@ -103,10 +103,10 @@ class _EmptyState extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
-                color: BrandColors.navy.withValues(alpha: 0.08),
+                color: BrandColors.teal.withValues(alpha: 0.08),
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, size: 40, color: BrandColors.navy),
+              child: Icon(icon, size: 40, color: BrandColors.teal),
             ),
             const SizedBox(height: 16),
             Text(
@@ -114,7 +114,7 @@ class _EmptyState extends StatelessWidget {
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
-                    color: BrandColors.navy,
+                    color: BrandColors.teal,
                   ),
             ),
             const SizedBox(height: 6),
@@ -155,7 +155,7 @@ class _QueueHeader extends StatelessWidget {
               '$count',
               style: const TextStyle(
                 fontWeight: FontWeight.w800,
-                color: BrandColors.navy,
+                color: BrandColors.teal,
               ),
             ),
           ),
@@ -185,7 +185,7 @@ class _ProfileClaimRequestsTab extends ConsumerWidget {
     final claimsAsync = ref.watch(pendingClaimRequestsProvider);
 
     return RefreshIndicator(
-      color: BrandColors.navy,
+      color: BrandColors.teal,
       onRefresh: () async {
         ref.invalidate(pendingClaimRequestsProvider);
         await ref.read(pendingClaimRequestsProvider.future);
@@ -321,12 +321,12 @@ class _ClaimCardState extends ConsumerState<_ClaimCard> {
             children: [
               CircleAvatar(
                 radius: 22,
-                backgroundColor: BrandColors.navy.withValues(alpha: 0.1),
+                backgroundColor: BrandColors.teal.withValues(alpha: 0.1),
                 child: Text(
                   initial,
                   style: const TextStyle(
                     fontWeight: FontWeight.w800,
-                    color: BrandColors.navy,
+                    color: BrandColors.teal,
                   ),
                 ),
               ),
@@ -340,7 +340,7 @@ class _ClaimCardState extends ConsumerState<_ClaimCard> {
                       style: const TextStyle(
                         fontWeight: FontWeight.w700,
                         fontSize: 16,
-                        color: BrandColors.navy,
+                        color: BrandColors.teal,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -388,7 +388,7 @@ class _ClaimCardState extends ConsumerState<_ClaimCard> {
                   style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
-                    color: BrandColors.navy,
+                    color: BrandColors.teal,
                   ),
                 ),
               ),
@@ -447,7 +447,7 @@ class _PaymentVerificationTab extends ConsumerWidget {
     final profileAsync = ref.watch(currentProfileProvider);
 
     return RefreshIndicator(
-      color: BrandColors.navy,
+      color: BrandColors.teal,
       onRefresh: () async {
         ref.invalidate(pendingContributionsProvider);
         await ref.read(pendingContributionsProvider.future);
@@ -586,12 +586,12 @@ class _PaymentCardState extends ConsumerState<_PaymentCard> {
             children: [
               CircleAvatar(
                 radius: 22,
-                backgroundColor: BrandColors.gold.withValues(alpha: 0.2),
+                backgroundColor: BrandColors.mint,
                 child: Text(
                   initial,
                   style: const TextStyle(
                     fontWeight: FontWeight.w800,
-                    color: BrandColors.navy,
+                    color: BrandColors.teal,
                   ),
                 ),
               ),
@@ -605,14 +605,14 @@ class _PaymentCardState extends ConsumerState<_PaymentCard> {
                       style: const TextStyle(
                         fontWeight: FontWeight.w700,
                         fontSize: 16,
-                        color: BrandColors.navy,
+                        color: BrandColors.ink,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       month,
-                      style: TextStyle(
-                        color: Colors.grey.shade700,
+                      style: const TextStyle(
+                        color: BrandColors.muted,
                         fontSize: 13,
                       ),
                     ),
@@ -621,8 +621,8 @@ class _PaymentCardState extends ConsumerState<_PaymentCard> {
                       selfReported
                           ? l10n.t('member_self_reported_payment')
                           : '${l10n.t('transaction_reference')}: ${c.transactionReference}',
-                      style: TextStyle(
-                        color: Colors.grey.shade600,
+                      style: const TextStyle(
+                        color: BrandColors.muted,
                         fontSize: 12,
                       ),
                     ),
@@ -630,11 +630,11 @@ class _PaymentCardState extends ConsumerState<_PaymentCard> {
                 ),
               ),
               Text(
-                '\$${c.amountPaid.toStringAsFixed(2)}',
+                '\$${(c.amountDue > 0 ? c.amountDue : c.amountPaid).toStringAsFixed(2)}',
                 style: const TextStyle(
                   fontWeight: FontWeight.w800,
                   fontSize: 18,
-                  color: BrandColors.navy,
+                  color: BrandColors.ink,
                 ),
               ),
             ],
@@ -643,36 +643,54 @@ class _PaymentCardState extends ConsumerState<_PaymentCard> {
           Row(
             children: [
               Expanded(
-                child: OutlinedButton.icon(
-                  onPressed:
-                      _busy || widget.verifierId == null ? null : () => _verify(false),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFFDC2626),
-                    side: const BorderSide(color: Color(0xFFDC2626)),
+                child: SizedBox(
+                  height: 46,
+                  child: FilledButton.icon(
+                    onPressed: _busy || widget.verifierId == null
+                        ? null
+                        : () => _verify(true),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: BrandColors.teal,
+                      foregroundColor: BrandColors.linen,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    icon: _busy
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: BrandColors.linen,
+                            ),
+                          )
+                        : const Icon(Icons.check_rounded, size: 18),
+                    label: Text(l10n.t('approve')),
                   ),
-                  icon: const Icon(Icons.close_rounded, size: 18),
-                  label: Text(l10n.t('reject')),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: FilledButton.icon(
-                  onPressed:
-                      _busy || widget.verifierId == null ? null : () => _verify(true),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF059669),
+                child: SizedBox(
+                  height: 46,
+                  child: OutlinedButton.icon(
+                    onPressed: _busy || widget.verifierId == null
+                        ? null
+                        : () => _verify(false),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: BrandColors.urgent,
+                      side: const BorderSide(
+                        color: BrandColors.border,
+                        width: 1.5,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    icon: const Icon(Icons.close_rounded, size: 18),
+                    label: Text(l10n.t('reject')),
                   ),
-                  icon: _busy
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.check_rounded, size: 18),
-                  label: Text(l10n.t('approve')),
                 ),
               ),
             ],

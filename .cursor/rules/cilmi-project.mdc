@@ -1,0 +1,9 @@
+---
+description: CILMI Foundation app — project context, rules and redesign plan
+alwaysApply: true
+---
+
+Before doing anything in this project, read `AGENTS.md` (project context, rules, do-not-break list, step plan).
+Before any UI or styling work, also read `design/DESIGN.md` and look at the matching mockup in `design/png/` (and `design/html/` for exact values).
+
+Work one step at a time. After each step: run `flutter analyze` (0 errors), list changed files, tell the user what to test, and stop.

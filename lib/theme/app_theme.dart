@@ -53,6 +53,10 @@ class AppTheme {
       colorScheme: ColorScheme.light(
         primary: BrandColors.teal,
         onPrimary: Colors.white,
+        // Light tint for chips/avatars/badges (defaults to teal otherwise,
+        // which made dark text on them invisible).
+        primaryContainer: BrandColors.mint,
+        onPrimaryContainer: BrandColors.teal,
         secondary: BrandColors.gold,
         onSecondary: BrandColors.onGold,
         surface: BrandColors.surface,

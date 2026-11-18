@@ -54,3 +54,7 @@ android/*.jks
 android/*.keystore
 *.jks
 *.keystore
+
+# Local review screenshots and stray Android build output
+tmp/
+android/build/
